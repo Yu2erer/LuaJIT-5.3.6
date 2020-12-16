@@ -45,7 +45,7 @@ static const luaL_Reg base_funcs[] = {
 
 ### lvm.c
 
-添加头文件，在 `pushclosure` 函数这里， `if (!isblack(p)`  改为以下的代码。
+添加头文件，在 `pushclosure` 函数这里， `if (!isblack(p))`  改为以下的代码。
 
 这是因为，当我们标记的 Table 中含有的闭包，被执行到的时候，会动态的生成 `Closure` ，但是这个 `Closure` 是没办法被标记到的，因为是动态生成的，因此不应该指过去。
 
