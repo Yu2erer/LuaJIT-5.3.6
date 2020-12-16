@@ -1,4 +1,4 @@
-# Lua-GC
+# Lua-GC 优化
 Lua GC 提速
 
 ## 思路
