@@ -11,8 +11,11 @@ Lua GC 提速
 打上标记的对象不能够修改其内部的任何数据（有可能会分配新的对象，但是没能成功标记上，被 Lua 的垃圾回收
 给清理）
 
+具体参见 [Lua GC垃圾回收优化方案](https://yuerer.com/Lua-GC%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88/)
+
 ## 使用方法
 支持 table, Lua Closure, string, number, boolean
+不支持弱表
 
 ```lua
 nogc("open", Table) -- 这一整个 Table 都不被扫描不被清理
