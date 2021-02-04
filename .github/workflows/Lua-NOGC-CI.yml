@@ -15,6 +15,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        ref: ${{ github.ref }}
+        ref: refs/heads/Lua5.3.5-NOGC
     - name: build and test
-      run: make linux test
+      run: make ${{ runner.os }} test
