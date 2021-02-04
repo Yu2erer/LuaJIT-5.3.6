@@ -1,0 +1,17 @@
+name: Lua5.3.5-NOGC CI
+
+on:
+  push:
+    branches: [ Lua5.3.5-NOGC ]
+  pull_request:
+    branches: [ Lua5.3.5-NOGC ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: build and test
+      run: make linux test
