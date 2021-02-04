@@ -1,0 +1,20 @@
+name: Lua5.3.6
+
+on:
+  push:
+    branches: [ Lua5.3.6-NOGC ]
+  pull_request:
+    branches: [ Lua5.3.6-NOGC ]
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        ref: refs/heads/Lua5.3.6-NOGC
+    - name: build and test
+      run: make linux test
