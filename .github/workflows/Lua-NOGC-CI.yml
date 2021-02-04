@@ -1,4 +1,4 @@
-name: Lua5.3.5-NOGC CI
+name: Lua-NOGC CI
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ Lua5.3.5-NOGC ]
   workflow_dispatch:
-    branches: [ Lua5.3.5-NOGC ]
 
 jobs:
   build:
