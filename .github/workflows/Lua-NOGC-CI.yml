@@ -17,4 +17,4 @@ jobs:
       with:
         ref: refs/heads/Lua5.3.5-NOGC
     - name: build and test
-      run: make ${{ runner.os }} test
+      run: make linux test
