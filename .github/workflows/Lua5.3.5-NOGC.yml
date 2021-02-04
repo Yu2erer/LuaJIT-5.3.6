@@ -1,4 +1,4 @@
-name: Lua-NOGC CI
+name: Lua5.3.5-NOGC
 
 on:
   push:
