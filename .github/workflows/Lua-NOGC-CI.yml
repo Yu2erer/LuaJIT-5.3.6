@@ -14,5 +14,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        refs: ${{ github.ref }}
     - name: build and test
       run: make linux test
