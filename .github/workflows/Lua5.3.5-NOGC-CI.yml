@@ -5,6 +5,7 @@ on:
     branches: [ Lua5.3.5-NOGC ]
   pull_request:
     branches: [ Lua5.3.5-NOGC ]
+  workflow_dispatch:
 
 jobs:
   build:
