@@ -25,6 +25,7 @@
 #include "ltable.h"
 #include "ltm.h"
 
+#include "YGC.h"
 
 /*
 ** internal state for collector while inside the atomic phase. The
@@ -565,13 +566,13 @@ static void propagatemark (global_State *g) {
     case LUA_TTABLE: {
       Table *h = gco2t(o);
       g->gray = h->gclist;  /* remove from 'gray' list */
-      size = traversetable(g, h);
+      size = (Y_isnogc(o) ? 0 : traversetable(g, h));
       break;
     }
     case LUA_TLCL: {
       LClosure *cl = gco2lcl(o);
       g->gray = cl->gclist;  /* remove from 'gray' list */
-      size = traverseLclosure(g, cl);
+      size = (Y_isnogc(cl) ? 0 : traverseLclosure(g, cl));
       break;
     }
     case LUA_TCCL: {
@@ -591,7 +592,7 @@ static void propagatemark (global_State *g) {
     case LUA_TPROTO: {
       Proto *p = gco2p(o);
       g->gray = p->gclist;  /* remove from 'gray' list */
-      size = traverseproto(g, p);
+      size = (Y_isnogc(p) ? 0 : traverseproto(g, p));
       break;
     }
     default: lua_assert(0); return;
@@ -738,6 +739,12 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   int white = luaC_white(g);  /* current white */
   while (*p != NULL && count-- > 0) {
     GCObject *curr = *p;
+    if (g->gcstate == GCSswpallgc && Y_isnogc(curr)) {
+      *p = curr->next;
+      curr->next = g->Y_nogc;
+      g->Y_nogc = curr;
+      continue;
+    }
     int marked = curr->marked;
     if (isdeadm(ow, marked)) {  /* is 'curr' dead? */
       *p = curr->next;  /* remove 'curr' from list */

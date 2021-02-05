@@ -31,6 +31,8 @@
 #include "lvm.h"
 
 
+#include "YGC.h"
+
 /* limit for table tag-method chains (to avoid loops) */
 #define MAXTAGLOOP	2000
 
@@ -645,7 +647,7 @@ static void pushclosure (lua_State *L, Proto *p, UpVal **encup, StkId base,
     ncl->upvals[i]->refcount++;
     /* new closure is white, so we do not need a barrier here */
   }
-  if (!isblack(p))  /* cache will not break GC invariant? */
+  if (!isblack(p) && !Y_isnogc(p) && !Y_isnogc(ncl))  /* cache will not break GC invariant? */
     p->cache = ncl;  /* save it on cache for reuse */
 }
 

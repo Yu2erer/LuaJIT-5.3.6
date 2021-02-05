@@ -20,6 +20,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#include "YGC.h"
 
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
@@ -479,6 +480,7 @@ static const luaL_Reg base_funcs[] = {
   /* placeholders */
   {"_G", NULL},
   {"_VERSION", NULL},
+  {"nogc", nogc},
   {NULL, NULL}
 };
 
