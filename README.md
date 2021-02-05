@@ -139,10 +139,10 @@ if (!isblack(p) && !Y_isnogc(p) && !Y_isnogc(ncl))
 
 ```c
 typedef struct global_State {
-	....
-	lu_mem Y_GCmemnogc; /* memory size of nogc linked list */
-	GCObject *Y_nogc;  /* list of objects not to be traversed or collected */
-	....
+  ....
+  lu_mem Y_GCmemnogc; /* memory size of nogc linked list */
+  GCObject *Y_nogc;  /* list of objects not to be traversed or collected */
+  ....
 }
 ```
 
@@ -151,10 +151,10 @@ typedef struct global_State {
 
 ```c
 LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
-	....
-	g->Y_GCmemnogc = 0;
-	g->Y_nogc = NULL;
-	....
+  ....
+  g->Y_GCmemnogc = 0;
+  g->Y_nogc = NULL;
+  ....
 }
 ```
 
