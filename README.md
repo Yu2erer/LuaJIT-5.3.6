@@ -71,7 +71,7 @@ nogc("open", table) -- 重新打开 NOGC
 ## 如何接入项目？
 
 ```sh
-git clone https://github.com/Yu2erer/Lua-GC.git
+git clone https://github.com/Yu2erer/Lua-NOGC.git
 git checkout Lua5.3.6-NOGC # 如果需要 Lua5.3.5 请修改为 Lua5.3.5-NOGC
 make linux test # 其中 linux 为相应平台，Lua 官方支持的平台都支持
 ```
