@@ -1,7 +1,7 @@
 # Lua-NOGC
 <p align="center">
-<a href="https://github.com/Yu2erer/Lua-GC/actions?query=workflow%3ALua-5.3.6"><img src="https://github.com/Yu2erer/Lua-GC/workflows/Lua5.3.6/badge.svg"></a>
-<a href="https://github.com/Yu2erer/Lua-GC/actions?query=workflow%3ALua-5.3.5"><img src="https://github.com/Yu2erer/Lua-GC/workflows/Lua5.3.5/badge.svg"></a>
+<a href="https://github.com/Yu2erer/Lua-NOGC/actions?query=workflow%3ALua-5.3.6"><img src="https://github.com/Yu2erer/Lua-NOGC/workflows/Lua5.3.6/badge.svg"></a>
+<a href="https://github.com/Yu2erer/Lua-NOGC/actions?query=workflow%3ALua-5.3.5"><img src="https://github.com/Yu2erer/Lua-NOGC/workflows/Lua5.3.5/badge.svg"></a>
 </p>
 
 `Lua-NOGC` 是基于 Lua 5.3.x 实现的一个垃圾回收优化的扩展版本，其兼容 Lua 5.3 的各个版本，目前提供 `Lua 5.3.5` 与 `Lua 5.3.6` 两个可直接编译的版本，可在本仓库的相应分支中获得。
