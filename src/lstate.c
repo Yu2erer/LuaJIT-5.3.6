@@ -291,7 +291,7 @@ void luaE_freethread (lua_State *L, lua_State *L1) {
   luaM_free(L, l);
 }
 
-
+#include <stdio.h>
 LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   int i;
   lua_State *L;
@@ -330,6 +330,17 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->gcfinnum = 0;
   g->gcpause = LUAI_GCPAUSE;
   g->gcstepmul = LUAI_GCMUL;
+
+  g->Y_bgrunning = 0;
+  if (pthread_create(&g->Y_bgthread, NULL, Y_BGThread, cast(void*, L)) != 0) {
+    printf("ERROR PTHREAD CREATE\n");
+  } else {
+    printf ("PTHREAD CREATE SUCC\n");
+    // g->Y_bgrunning = 1;
+  }
+  pthread_mutex_init(&g->Y_bgmutex, NULL);
+  pthread_cond_init(&g->Y_bgjobcond, NULL);
+
   for (i=0; i < LUA_NUMTAGS; i++) g->mt[i] = NULL;
   if (luaD_rawrunprotected(L, f_luaopen, NULL) != LUA_OK) {
     /* memory allocation error: free partial state */

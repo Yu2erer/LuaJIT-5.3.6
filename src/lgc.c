@@ -737,6 +737,7 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   global_State *g = G(L);
   int ow = otherwhite(g);
   int white = luaC_white(g);  /* current white */
+  Y_BGJobObject *j = Y_createbgjob(L);
   while (*p != NULL && count-- > 0) {
     GCObject *curr = *p;
     if (g->gcstate == GCSswpallgc && Y_isnogc(curr)) {
@@ -748,13 +749,15 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
     int marked = curr->marked;
     if (isdeadm(ow, marked)) {  /* is 'curr' dead? */
       *p = curr->next;  /* remove 'curr' from list */
-      freeobj(L, curr);  /* erase 'curr' */
+      /* try to erase 'curr' in the background */
+      Y_trybgfreeobj(L, curr, j, &freeobj);
     }
     else {  /* change mark to 'white' */
       curr->marked = cast_byte((marked & maskcolors) | white);
       p = &curr->next;  /* go to next element */
     }
   }
+  Y_submitbgjob(L, j);
   return (*p == NULL) ? NULL : p;
 }
 
@@ -1048,7 +1051,7 @@ static lu_mem sweepstep (lua_State *L, global_State *g,
   return 0;
 }
 
-
+#include <stdio.h>
 static lu_mem singlestep (lua_State *L) {
   global_State *g = G(L);
   switch (g->gcstate) {
