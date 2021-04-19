@@ -480,7 +480,7 @@ static const luaL_Reg base_funcs[] = {
   /* placeholders */
   {"_G", NULL},
   {"_VERSION", NULL},
-  {"nogc", nogc},
+  Y_BASEFUNCS,
   {NULL, NULL}
 };
 

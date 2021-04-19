@@ -1,7 +1,7 @@
 /*
  * @Author: Yuerer
  * @Date: 2020-12-16 10:01:20
- * @LastEditTime: 2021-04-14 16:47:36
+ * @LastEditTime: 2021-04-19 16:47:36
  */
 
 #include "YGC.h"
@@ -12,9 +12,6 @@
 #include "ltable.h"
 #include "lstring.h"
 #include "lauxlib.h"
-
-#include <stdio.h>
-
 
 #define Y_NOGCCCLOSE 0
 #define Y_NOGCOPEN   1
@@ -287,18 +284,20 @@ int nogc (lua_State *L) {
   return 0;
 }
 
-
 /* ------------------------ Background Garbage Collect ------------------------ */
 
+#define Y_BGGCCLOSE 0
+#define Y_BGGCOPEN 1
+#define Y_BGGCISRUNNING 2
 
 static void Y_luaM_free_ (lua_State *L, void *block, size_t osize);
 static void *Y_luaM_malloc (lua_State *L, size_t nsize);
 static void Y_luaF_freeproto (lua_State *L, Proto *f);
 static void Y_luaH_free (lua_State *L, Table *t);
-
-static inline void Y_linkbgjob (Y_BGJobObject *j, GCObject *o);
-
+static size_t Y_linkbgjob (Y_bgjob *j, GCObject *o);
+static void Y_upvdeccount (lua_State *L, LClosure *cl);
 static void Y_freeobj (lua_State *L, GCObject *o);
+static void *Y_bgProcessJobs (void *arg);
 
 #define Y_luaM_freemem(L, b, s) Y_luaM_free_(L, (b), (s))
 #define Y_luaM_free(L, b) Y_luaM_free_(L, (b), sizeof(*(b)))
@@ -307,14 +306,12 @@ static void Y_freeobj (lua_State *L, GCObject *o);
 
 static inline void Y_luaM_free_ (lua_State *L, void *block, size_t osize) {
   global_State *g = G(L);
-  lua_Alloc alloc = *g->frealloc;
-  alloc(g->ud, block, osize, 0);
+  (*g->frealloc)(g->ud, block, osize, 0);
 }
 
 static inline void *Y_luaM_malloc (lua_State *L, size_t nsize) {
   global_State *g = G(L);
-  lua_Alloc alloc = *g->frealloc;
-  void *newblock = alloc(g->ud, NULL, 0, nsize);
+  void *newblock = (*g->frealloc)(g->ud, NULL, 0, nsize);
   return newblock;
 }
 
@@ -335,22 +332,66 @@ static inline void Y_luaH_free (lua_State *L, Table *t) {
   Y_luaM_free(L, t);
 }
 
-static Y_BGJobObject *Y_jobs = NULL;
-
-struct Y_BGJobObject {
-  Y_BGJobObject *next;
+static Y_bgjob *Y_jobs = NULL;
+struct Y_bgjob {
+  Y_bgjob *next;
   GCObject *Y_bggc;
 };
 
-static inline void Y_linkbgjob (Y_BGJobObject *j, GCObject *o) {
+/* link GCObject to a background job 
+  and return the size of the GCObject 
+  that will be released */
+static size_t Y_linkbgjob (Y_bgjob *j, GCObject *o) {
   o->next = j->Y_bggc;
   j->Y_bggc = o;
+  size_t osize = 0;
+  switch (o->tt) {
+    case LUA_TPROTO: {
+      Proto *f = gco2p(o);
+      osize += sizeof(*(f->code)) * f->sizecode;
+      osize += sizeof(*(f->p)) * f->sizep;
+      osize += sizeof(*(f->k)) * f->sizek;
+      osize += sizeof(*(f->lineinfo)) * f->sizelineinfo;
+      osize += sizeof(*(f->locvars)) * f->sizelocvars;
+      osize += sizeof(*(f->upvalues)) * f->sizeupvalues;
+      osize += sizeof(*(f));
+      break;
+    }
+    case LUA_TLCL: osize = sizeLclosure(gco2lcl(o)->nupvalues); break;
+    case LUA_TCCL: osize = sizeCclosure(gco2ccl(o)->nupvalues); break;
+    case LUA_TTABLE: {
+      Table *t = gco2t(o);
+      if (!isdummy(t)) osize += sizeof(*(t->node)) * cast(size_t, sizenode(t));
+      osize += sizeof(*(t->array)) * t->sizearray;
+      osize += sizeof(*(t));
+      break;
+    }
+    case LUA_TUSERDATA: osize = sizeudata(gco2u(o)); break;
+    case LUA_TSHRSTR: osize = sizelstring(gco2ts(o)->shrlen); break;
+    case LUA_TLNGSTR: osize = sizelstring(gco2ts(o)->u.lnglen); break;
+    default: lua_assert(0);
+  }
+  return osize;
+}
+
+static void Y_upvdeccount (lua_State *L, LClosure *cl) {
+  int i;
+  for (i = 0; i < cl->nupvalues; i++) {
+    UpVal *uv = cl->upvals[i];
+    if (uv)
+      luaC_upvdeccount(L, uv);
+  }
 }
 
 static void Y_freeobj (lua_State *L, GCObject *o) {
-  /* lua closures and threads are released in the main thread */
+  /* threads are released in the main thread */
   switch (o->tt) {
     case LUA_TPROTO: Y_luaF_freeproto(L, gco2p(o)); break;
+    case LUA_TLCL: {
+      /* dec upvalue refcount in the main thread */
+      luaM_freemem(L, gco2lcl(o), sizeLclosure(gco2lcl(o)->nupvalues));
+      break;
+    }
     case LUA_TCCL: {
       Y_luaM_freemem(L, o, sizeCclosure(gco2ccl(o)->nupvalues));
       break;
@@ -370,93 +411,122 @@ static void Y_freeobj (lua_State *L, GCObject *o) {
   }
 }
 
-void *Y_BGThread (void *arg) {
+void *Y_bgProcessJobs (void *arg) {
   lua_State *L= cast(lua_State*, arg);
   global_State *g = G(L);
+  pthread_mutex_lock(&g->Y_bgmutex);
   while (1) {
-    pthread_mutex_lock(&g->Y_bgmutex);
-    Y_BGJobObject **p = &Y_jobs;
+    Y_bgjob **p = &Y_jobs;
     if (*p == NULL) {
-      pthread_cond_wait(&g->Y_bgjobcond, &g->Y_bgmutex);
+      pthread_cond_wait(&g->Y_bgcond, &g->Y_bgmutex);
       continue;
     }
-    Y_BGJobObject *curr = *p;
+    Y_bgjob *curr = *p;
     *p = curr->next;
     pthread_mutex_unlock(&g->Y_bgmutex);
     GCObject **op = &curr->Y_bggc;
     while (*op != NULL) {
       GCObject *curr = *op;
-      Y_freeobj(L, curr);
       *op = curr->next;
-      printf("succ clear %d\n", curr->tt);
+      Y_freeobj(L, curr);
     }
     Y_luaM_free(L, curr);
+    pthread_mutex_lock(&g->Y_bgmutex);
   }
   return NULL;
 }
 
-Y_BGJobObject *Y_createbgjob (lua_State *L) {
+Y_bgjob *Y_createbgjob (lua_State *L) {
   if (!G(L)->Y_bgrunning) return NULL;
-  Y_BGJobObject *j = Y_luaM_new(L, Y_BGJobObject);
+  Y_bgjob *j = Y_luaM_new(L, Y_bgjob);
+  j->next = NULL;
+  j->Y_bggc = NULL;
   return j;
 }
 
-void Y_trybgfreeobj (lua_State *L, GCObject *o, Y_BGJobObject *j, void(*fgfreeobj)(lua_State*, GCObject*)) {
+inline void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
+  global_State *g = G(L);
+  if (!g->Y_bgrunning) return;
+  pthread_mutex_lock(&g->Y_bgmutex);
+  j->next = Y_jobs;
+  Y_jobs = j;
+  pthread_cond_signal(&g->Y_bgcond);
+  pthread_mutex_unlock(&g->Y_bgmutex);
+}
+
+void Y_trybgfree (lua_State *L, GCObject *o, Y_bgjob *j, void(*fgfreeobj)(lua_State*, GCObject*)) {
   global_State *g = G(L);
   if (!g->Y_bgrunning) {
     return fgfreeobj(L, o);
   }
   size_t osize = 0;
   switch (o->tt) {
-    case LUA_TPROTO: {
-      Y_linkbgjob(j, o);
-      break;
-    }
+    case LUA_TPROTO: osize = Y_linkbgjob(j, o); break;
     case LUA_TLCL: {
-      /* release the memory by the main thread */
-      /* fix me ... */
-      // freeLclosure(L, gco2lcl(o));
-      break;
-    }
-    case LUA_TCCL: {
+      Y_upvdeccount(L, gco2lcl(o));
       Y_linkbgjob(j, o);
       break;
     }
-    case LUA_TTABLE: {
-      Y_linkbgjob(j, o);
-      break;
-    }
+    case LUA_TCCL: osize = Y_linkbgjob(j, o); break;
+    case LUA_TTABLE: osize = Y_linkbgjob(j, o); break;
     case LUA_TTHREAD: {
       /* release the memory by the main thread */
       luaE_freethread(L, gco2th(o));
       break;
     }
-    case LUA_TUSERDATA:
-      Y_linkbgjob(j, o);
-      break;
+    case LUA_TUSERDATA: osize = Y_linkbgjob(j, o); break;
     case LUA_TSHRSTR:
       /* remove it from hash table by main thread */
       luaS_remove(L, gco2ts(o));
       /* release the memory by background thread */
-      Y_linkbgjob(j, o);
+      osize = Y_linkbgjob(j, o);
       break;
-    case LUA_TLNGSTR: {
-      Y_linkbgjob(j, o);
-      break;
-    }
+    case LUA_TLNGSTR: osize = Y_linkbgjob(j, o); break;
     default: lua_assert(0);
   }
-  /* fix me! Very important. */
   g->GCdebt -= osize;
 }
 
-
-inline void Y_submitbgjob (lua_State *L, Y_BGJobObject *j) {
+inline void Y_initstate (lua_State *L) {
   global_State *g = G(L);
-  if (!g->Y_bgrunning) return;
-  pthread_mutex_lock(&g->Y_bgmutex);
-  j->next = Y_jobs;
-  Y_jobs = j;
-  pthread_cond_signal(&g->Y_bgjobcond);
-  pthread_mutex_unlock(&g->Y_bgmutex);
+  g->Y_nogc = NULL;
+  g->Y_GCmemnogc = 0;
+  g->Y_bgrunning = 0;
+  pthread_mutex_init(&g->Y_bgmutex, NULL);
+  pthread_cond_init(&g->Y_bgcond, NULL);
+  /* fixme: check return value */
+  pthread_create(&g->Y_bgthread, NULL, Y_bgProcessJobs, cast(void*, L));
+}
+
+static int Y_bggc (lua_State *L, int what) {
+  int res = 0;
+  global_State *g = G(L);
+  switch (what) {
+    case Y_BGGCCLOSE: {
+      g->Y_bgrunning = 0;
+      break;
+    }
+    case Y_BGGCOPEN: {
+      g->Y_bgrunning = 1;
+      break;
+    }
+    case Y_BGGCISRUNNING: {
+      res = g->Y_bgrunning;
+      break;
+    }
+    default: res = -1;
+  }
+  return res;
+}
+
+int bggc (lua_State *L) {
+  static const char* const opts[] = {"close", "open", "isrunning", NULL};
+  static const int optsum[] = {Y_BGGCCLOSE, Y_BGGCOPEN, Y_BGGCISRUNNING};
+  int o = optsum[luaL_checkoption(L, 1, "isrunning", opts)];
+  int res = Y_bggc(L, o);
+  if (o == Y_BGGCISRUNNING) {
+    lua_pushinteger(L, res);
+    return 1;
+  }
+  return 0;
 }

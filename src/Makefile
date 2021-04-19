@@ -110,7 +110,7 @@ linux:
 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline -lpthread"
 
 macosx:
-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_MACOSX" SYSLIBS="-lreadline"
+	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_MACOSX" SYSLIBS="-lreadline -lpthread"
 
 mingw:
 	$(MAKE) "LUA_A=lua53.dll" "LUA_T=lua.exe" \
@@ -133,7 +133,7 @@ lapi.o: lapi.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
  lobject.h ltm.h lzio.h lmem.h ldebug.h ldo.h lfunc.h lgc.h lstring.h \
  ltable.h lundump.h lvm.h
 lauxlib.o: lauxlib.c lprefix.h lua.h luaconf.h lauxlib.h
-lbaselib.o: lbaselib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
+lbaselib.o: lbaselib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h YGC.h
 lbitlib.o: lbitlib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
 lcode.o: lcode.c lprefix.h lua.h luaconf.h lcode.h llex.h lobject.h \
  llimits.h lzio.h lmem.h lopcodes.h lparser.h ldebug.h lstate.h ltm.h \
@@ -172,7 +172,7 @@ lparser.o: lparser.c lprefix.h lua.h luaconf.h lcode.h llex.h lobject.h \
  ldo.h lfunc.h lstring.h lgc.h ltable.h
 lstate.o: lstate.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
  lobject.h ltm.h lzio.h lmem.h ldebug.h ldo.h lfunc.h lgc.h llex.h \
- lstring.h ltable.h
+ lstring.h ltable.h YGC.h
 lstring.o: lstring.c lprefix.h lua.h luaconf.h ldebug.h lstate.h \
  lobject.h llimits.h ltm.h lzio.h lmem.h ldo.h lstring.h lgc.h
 lstrlib.o: lstrlib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h

@@ -1,7 +1,7 @@
 /*
  * @Author: Yuerer
  * @Date: 2020-12-16 09:54:20
- * @LastEditTime: 2021-04-14 16:47:01
+ * @LastEditTime: 2021-04-19 20:45:01
  */
 
 #ifndef YGC_H
@@ -19,15 +19,18 @@
 int nogc (lua_State *L);
 int bggc (lua_State *L);
 
-/* lstate.c may init by myself. */
-void *Y_BGThread (void *arg);
+/* lstate.c */
+void Y_initstate (lua_State *L);
 
-typedef struct Y_BGJobObject Y_BGJobObject;
+/* lgc.c */
+typedef struct Y_bgjob Y_bgjob;
+Y_bgjob* Y_createbgjob (lua_State *L);
+void Y_submitbgjob (lua_State *L, Y_bgjob *j);
+void Y_trybgfree (lua_State*,GCObject*,Y_bgjob*,void(*)(lua_State*, GCObject*));
 
-Y_BGJobObject *Y_createbgjob (lua_State *L);
-void Y_trybgfreeobj (lua_State *L, GCObject *o, Y_BGJobObject *j, 
-  void(*fgfreeobj)(lua_State*, GCObject*));
-void Y_submitbgjob (lua_State *L, Y_BGJobObject *j);
-
+/* lbaselib.c */
+#define Y_BASEFUNCS \
+{"nogc", nogc}, \
+{"bggc", bggc}
 
 #endif

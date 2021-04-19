@@ -311,7 +311,6 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->seed = makeseed(L);
   g->gcrunning = 0;  /* no GC while building state */
   g->GCestimate = 0;
-  g->Y_GCmemnogc = 0;
   g->strt.size = g->strt.nuse = 0;
   g->strt.hash = NULL;
   setnilvalue(&g->l_registry);
@@ -320,7 +319,6 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->gcstate = GCSpause;
   g->gckind = KGC_NORMAL;
   g->allgc = g->finobj = g->tobefnz = g->fixedgc = NULL;
-  g->Y_nogc = NULL;
   g->sweepgc = NULL;
   g->gray = g->grayagain = NULL;
   g->weak = g->ephemeron = g->allweak = NULL;
@@ -330,17 +328,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->gcfinnum = 0;
   g->gcpause = LUAI_GCPAUSE;
   g->gcstepmul = LUAI_GCMUL;
-
-  g->Y_bgrunning = 0;
-  if (pthread_create(&g->Y_bgthread, NULL, Y_BGThread, cast(void*, L)) != 0) {
-    printf("ERROR PTHREAD CREATE\n");
-  } else {
-    printf ("PTHREAD CREATE SUCC\n");
-    // g->Y_bgrunning = 1;
-  }
-  pthread_mutex_init(&g->Y_bgmutex, NULL);
-  pthread_cond_init(&g->Y_bgjobcond, NULL);
-
+  Y_initstate(L);
   for (i=0; i < LUA_NUMTAGS; i++) g->mt[i] = NULL;
   if (luaD_rawrunprotected(L, f_luaopen, NULL) != LUA_OK) {
     /* memory allocation error: free partial state */
