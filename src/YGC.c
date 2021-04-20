@@ -64,7 +64,7 @@ static void Y_closeupvalue (lua_State *L, UpVal *u) {
       uv->v = &uv->u.value;
       break;
     }
-		up = &uv->u.open.next;
+    up = &uv->u.open.next;
   }
 }
 
@@ -176,11 +176,12 @@ static void Y_traverseLclosure (lua_State *L, LClosure *cl, int b) {
     UpVal *uv = cl->upvals[i];
     if (uv != NULL) {
       GCObject *o = gcvalue(uv->v);
-      if (o == gto || !b) continue;
-      if (upisopen(uv)) {
+      /* skip _ENV */
+      if (o == gto) continue;
+      if (b && upisopen(uv)) {
         Y_closeupvalue(L, uv);
       }
-      Y_markvalue(L, uv->v, 1);
+      Y_markvalue(L, uv->v, b);
     }
   }
   lu_mem mem = sizeLclosure(cl->nupvalues);
