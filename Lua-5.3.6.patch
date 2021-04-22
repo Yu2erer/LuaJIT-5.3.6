@@ -19,7 +19,7 @@ diff -Naur lua-5.3.6/src/lbaselib.c Lua-NOGC/src/lbaselib.c
  
 diff -Naur lua-5.3.6/src/lgc.c Lua-NOGC/src/lgc.c
 --- lua-5.3.6/src/lgc.c	2020-09-14 23:34:00.000000000 +0800
-+++ Lua-NOGC/src/lgc.c	2021-04-22 20:12:48.430605564 +0800
++++ Lua-NOGC/src/lgc.c	2021-04-22 20:46:35.902647441 +0800
 @@ -25,6 +25,7 @@
  #include "ltable.h"
  #include "ltm.h"
@@ -53,15 +53,7 @@ diff -Naur lua-5.3.6/src/lgc.c Lua-NOGC/src/lgc.c
        break;
      }
      default: lua_assert(0); return;
-@@ -724,7 +725,6 @@
- #define sweepwholelist(L,p)	sweeplist(L,p,MAX_LUMEM)
- static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count);
- 
--
- /*
- ** sweep at most 'count' elements from a list of GCObjects erasing dead
- ** objects, where a dead object is one marked with the old (non current)
-@@ -736,18 +736,27 @@
+@@ -736,18 +737,27 @@
    global_State *g = G(L);
    int ow = otherwhite(g);
    int white = luaC_white(g);  /* current white */
@@ -90,7 +82,7 @@ diff -Naur lua-5.3.6/src/lgc.c Lua-NOGC/src/lgc.c
    return (*p == NULL) ? NULL : p;
  }
  
-@@ -1041,7 +1050,6 @@
+@@ -1041,7 +1051,6 @@
    return 0;
  }
  
@@ -100,16 +92,7 @@ diff -Naur lua-5.3.6/src/lgc.c Lua-NOGC/src/lgc.c
    switch (g->gcstate) {
 diff -Naur lua-5.3.6/src/lstate.c Lua-NOGC/src/lstate.c
 --- lua-5.3.6/src/lstate.c	2020-09-14 23:34:01.000000000 +0800
-+++ Lua-NOGC/src/lstate.c	2021-04-22 20:09:13.518603047 +0800
-@@ -291,7 +291,7 @@
-   luaM_free(L, l);
- }
- 
--
-+#include <stdio.h>
- LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
-   int i;
-   lua_State *L;
++++ Lua-NOGC/src/lstate.c	2021-04-22 20:47:46.254646141 +0800
 @@ -328,6 +328,7 @@
    g->gcfinnum = 0;
    g->gcpause = LUAI_GCPAUSE;

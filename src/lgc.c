@@ -725,6 +725,7 @@ static void freeobj (lua_State *L, GCObject *o) {
 #define sweepwholelist(L,p)	sweeplist(L,p,MAX_LUMEM)
 static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count);
 
+
 /*
 ** sweep at most 'count' elements from a list of GCObjects erasing dead
 ** objects, where a dead object is one marked with the old (non current)
