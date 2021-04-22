@@ -32,6 +32,7 @@ bggc 只有一个参数 opt，通过参数 opt 它提供一组不同的功能。
 ### BGGC 示例
 ```lua
 bggc("close") -- 关闭后台线程 垃圾回收
+
 bggc("open") -- 开启后台线程 垃圾回收
 ```
 
@@ -88,16 +89,18 @@ nogc("open", table) -- 重新打开 NOGC
 ## 如何接入项目？
 跟 官方的 `Lua5.3` 相同的使用方式。
 
+`BGGC` 不支持 `windows` 主要是 `windows` 不支持 `pthread`，但是依然可以编译，只是用不了这一个功能。
+
 ```sh
 git clone https://github.com/Yu2erer/Lua-NOGC.git
-make linux test # 其中 linux 为相应平台
+make linux test # 其中 linux 为相应平台，不支持 c89 编译。
 ```
 
 ## FAQ
 1. 只有 Lua 5.3.6 吗？
-> 目前仅提供了 Lua 5.3.6，如果需要其他 Lua 版本，可以参考 下面的详细修改过程。
+> 目前仅提供了 Lua 5.3.6，如果需要其他 Lua 版本，可以参考 [patch](https://github.com/Yu2erer/Lua-NOGC/blob/master/Lua-5.3.6.patch)。
 2. 你修改了 Lua 中的什么内容？
-> 也请参考 下面的详细修改过程。
+> 也请参考 [patch](https://github.com/Yu2erer/Lua-NOGC/blob/master/Lua-5.3.6.patch)。
 3. table 支持嵌套吗？ metatable呢？metamethod呢？
 > 统统支持，唯一不支持的就是 weak table。
 4. 为什么 NOGC 后，获取 nogc("len") 或 nogc("count") 为 0？
@@ -110,6 +113,3 @@ make linux test # 其中 linux 为相应平台
 > 参考 注意事项 中的代码示例。
 8. 你说的这么好，垃圾回收提速多少呢？
 > 经过测试，`bggc` 开启了后台线程优化后，大约能提升 `50%`。`nogc` 则取决于你不需要参与垃圾回收的对象数量。
-
----
-
