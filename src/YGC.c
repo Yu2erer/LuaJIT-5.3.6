@@ -305,18 +305,18 @@ static void *Y_bgProcessJobs (void *arg);
 #define Y_luaM_freearray(L, b, n) Y_luaM_free_(L, (b), (n)*sizeof(*(b)))
 #define Y_luaM_new(L, t) cast(t*, Y_luaM_malloc(L, sizeof(t)))
 
-static inline void Y_luaM_free_ (lua_State *L, void *block, size_t osize) {
+static void Y_luaM_free_ (lua_State *L, void *block, size_t osize) {
   global_State *g = G(L);
   (*g->frealloc)(g->ud, block, osize, 0);
 }
 
-static inline void *Y_luaM_malloc (lua_State *L, size_t nsize) {
+static void *Y_luaM_malloc (lua_State *L, size_t nsize) {
   global_State *g = G(L);
   void *newblock = (*g->frealloc)(g->ud, NULL, 0, nsize);
   return newblock;
 }
 
-static inline void Y_luaF_freeproto (lua_State *L, Proto *f) {
+static void Y_luaF_freeproto (lua_State *L, Proto *f) {
   Y_luaM_freearray(L, f->code, f->sizecode);
   Y_luaM_freearray(L, f->p, f->sizep);
   Y_luaM_freearray(L, f->k, f->sizek);
@@ -326,7 +326,7 @@ static inline void Y_luaF_freeproto (lua_State *L, Proto *f) {
   Y_luaM_free(L, f);
 }
 
-static inline void Y_luaH_free (lua_State *L, Table *t) {
+static void Y_luaH_free (lua_State *L, Table *t) {
   if (!isdummy(t))
     Y_luaM_freearray(L, t->node, cast(size_t, sizenode(t)));
   Y_luaM_freearray(L, t->array, t->sizearray);
@@ -447,7 +447,7 @@ Y_bgjob *Y_createbgjob (lua_State *L) {
   return j;
 }
 
-inline void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
+void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
   global_State *g = G(L);
   if (!g->Y_bgrunning) return;
 #if !defined(LUA_NO_SUPPORT_BGGC)
@@ -462,7 +462,8 @@ inline void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
 void Y_trybgfree (lua_State *L, GCObject *o, Y_bgjob *j, void(*fgfreeobj)(lua_State*, GCObject*)) {
   global_State *g = G(L);
   if (!g->Y_bgrunning) {
-    return fgfreeobj(L, o);
+    fgfreeobj(L, o);
+    return;
   }
   size_t osize = 0;
   switch (o->tt) {
@@ -492,7 +493,7 @@ void Y_trybgfree (lua_State *L, GCObject *o, Y_bgjob *j, void(*fgfreeobj)(lua_St
   g->GCdebt -= osize;
 }
 
-inline void Y_initstate (lua_State *L) {
+void Y_initstate (lua_State *L) {
   global_State *g = G(L);
   g->Y_nogc = NULL;
   g->Y_GCmemnogc = 0;

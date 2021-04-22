@@ -9,6 +9,11 @@
 
 #include "lgc.h"
 
+/* windows and c89 support nogc but not bggc */
+#if defined(LUA_USE_WINDOWS) || defined(LUA_USE_C89)
+#define LUA_NO_SUPPORT_BGGC
+#endif
+
 #if !defined(LUA_NO_SUPPORT_BGGC)
 #include <pthread.h>
 #endif
@@ -35,9 +40,5 @@ void Y_trybgfree (lua_State*,GCObject*,Y_bgjob*,void(*)(lua_State*, GCObject*));
 {"nogc", nogc}, \
 {"bggc", bggc}
 
-/* windows and c89 support nogc but not bggc */
-#if defined(LUA_USE_WINDOWS)
-#define LUA_NO_SUPPORT_BGGC
-#endif
 
 #endif
