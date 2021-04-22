@@ -1,0 +1,839 @@
+diff -Naur lua-5.3.6/src/lbaselib.c Lua-NOGC/src/lbaselib.c
+--- lua-5.3.6/src/lbaselib.c	2020-09-14 23:34:00.000000000 +0800
++++ Lua-NOGC/src/lbaselib.c	2021-04-22 17:27:21.714600964 +0800
+@@ -20,6 +20,7 @@
+ #include "lauxlib.h"
+ #include "lualib.h"
+ 
++#include "YGC.h"
+ 
+ static int luaB_print (lua_State *L) {
+   int n = lua_gettop(L);  /* number of arguments */
+@@ -479,6 +480,7 @@
+   /* placeholders */
+   {"_G", NULL},
+   {"_VERSION", NULL},
++  Y_BASEFUNCS,
+   {NULL, NULL}
+ };
+ 
+diff -Naur lua-5.3.6/src/lgc.c Lua-NOGC/src/lgc.c
+--- lua-5.3.6/src/lgc.c	2020-09-14 23:34:00.000000000 +0800
++++ Lua-NOGC/src/lgc.c	2021-04-22 20:12:48.430605564 +0800
+@@ -25,6 +25,7 @@
+ #include "ltable.h"
+ #include "ltm.h"
+ 
++#include "YGC.h"
+ 
+ /*
+ ** internal state for collector while inside the atomic phase. The
+@@ -565,13 +566,13 @@
+     case LUA_TTABLE: {
+       Table *h = gco2t(o);
+       g->gray = h->gclist;  /* remove from 'gray' list */
+-      size = traversetable(g, h);
++      size = (Y_isnogc(o) ? 0 : traversetable(g, h));
+       break;
+     }
+     case LUA_TLCL: {
+       LClosure *cl = gco2lcl(o);
+       g->gray = cl->gclist;  /* remove from 'gray' list */
+-      size = traverseLclosure(g, cl);
++      size = (Y_isnogc(cl) ? 0 : traverseLclosure(g, cl));
+       break;
+     }
+     case LUA_TCCL: {
+@@ -591,7 +592,7 @@
+     case LUA_TPROTO: {
+       Proto *p = gco2p(o);
+       g->gray = p->gclist;  /* remove from 'gray' list */
+-      size = traverseproto(g, p);
++      size = (Y_isnogc(p) ? 0 : traverseproto(g, p));
+       break;
+     }
+     default: lua_assert(0); return;
+@@ -724,7 +725,6 @@
+ #define sweepwholelist(L,p)	sweeplist(L,p,MAX_LUMEM)
+ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count);
+ 
+-
+ /*
+ ** sweep at most 'count' elements from a list of GCObjects erasing dead
+ ** objects, where a dead object is one marked with the old (non current)
+@@ -736,18 +736,27 @@
+   global_State *g = G(L);
+   int ow = otherwhite(g);
+   int white = luaC_white(g);  /* current white */
++  Y_bgjob *j = Y_createbgjob(L);
+   while (*p != NULL && count-- > 0) {
+     GCObject *curr = *p;
++    if (g->gcstate == GCSswpallgc && Y_isnogc(curr)) {
++      *p = curr->next;
++      curr->next = g->Y_nogc;
++      g->Y_nogc = curr;
++      continue;
++    }
+     int marked = curr->marked;
+     if (isdeadm(ow, marked)) {  /* is 'curr' dead? */
+       *p = curr->next;  /* remove 'curr' from list */
+-      freeobj(L, curr);  /* erase 'curr' */
++      /* try to erase 'curr' in the background */
++      Y_trybgfree(L, curr, j, &freeobj);
+     }
+     else {  /* change mark to 'white' */
+       curr->marked = cast_byte((marked & maskcolors) | white);
+       p = &curr->next;  /* go to next element */
+     }
+   }
++  Y_submitbgjob(L, j);
+   return (*p == NULL) ? NULL : p;
+ }
+ 
+@@ -1041,7 +1050,6 @@
+   return 0;
+ }
+ 
+-
+ static lu_mem singlestep (lua_State *L) {
+   global_State *g = G(L);
+   switch (g->gcstate) {
+diff -Naur lua-5.3.6/src/lstate.c Lua-NOGC/src/lstate.c
+--- lua-5.3.6/src/lstate.c	2020-09-14 23:34:01.000000000 +0800
++++ Lua-NOGC/src/lstate.c	2021-04-22 20:09:13.518603047 +0800
+@@ -291,7 +291,7 @@
+   luaM_free(L, l);
+ }
+ 
+-
++#include <stdio.h>
+ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
+   int i;
+   lua_State *L;
+@@ -328,6 +328,7 @@
+   g->gcfinnum = 0;
+   g->gcpause = LUAI_GCPAUSE;
+   g->gcstepmul = LUAI_GCMUL;
++  Y_initstate(L);
+   for (i=0; i < LUA_NUMTAGS; i++) g->mt[i] = NULL;
+   if (luaD_rawrunprotected(L, f_luaopen, NULL) != LUA_OK) {
+     /* memory allocation error: free partial state */
+diff -Naur lua-5.3.6/src/lstate.h Lua-NOGC/src/lstate.h
+--- lua-5.3.6/src/lstate.h	2020-09-14 23:34:01.000000000 +0800
++++ Lua-NOGC/src/lstate.h	2021-04-22 20:23:35.374670215 +0800
+@@ -14,6 +14,8 @@
+ #include "lzio.h"
+ 
+ 
++#include "YGC.h"
++
+ /*
+ 
+ ** Some notes about garbage-collected objects: All objects in Lua must
+@@ -169,6 +171,14 @@
+   TString *tmname[TM_N];  /* array with tag-method names */
+   struct Table *mt[LUA_NUMTAGS];  /* metatables for basic types */
+   TString *strcache[STRCACHE_N][STRCACHE_M];  /* cache for strings in API */
++  GCObject *Y_nogc;  /* list of objects not to be traversed or collected */
++  lu_mem Y_GCmemnogc; /* memory size of nogc linked list */
++  lu_byte Y_bgrunning; /* true if Background GC is running */
++#if !defined(LUA_USE_WINDOWS)
++  pthread_t Y_bgthread; /* background pthread */
++  pthread_mutex_t Y_bgmutex; /* background job mutex */
++  pthread_cond_t Y_bgcond;
++#endif
+ } global_State;
+ 
+ 
+diff -Naur lua-5.3.6/src/lvm.c Lua-NOGC/src/lvm.c
+--- lua-5.3.6/src/lvm.c	2020-09-14 23:34:01.000000000 +0800
++++ Lua-NOGC/src/lvm.c	2021-04-22 17:27:21.742600964 +0800
+@@ -31,6 +31,8 @@
+ #include "lvm.h"
+ 
+ 
++#include "YGC.h"
++
+ /* limit for table tag-method chains (to avoid loops) */
+ #define MAXTAGLOOP	2000
+ 
+@@ -645,7 +647,7 @@
+     ncl->upvals[i]->refcount++;
+     /* new closure is white, so we do not need a barrier here */
+   }
+-  if (!isblack(p))  /* cache will not break GC invariant? */
++  if (!isblack(p) && !Y_isnogc(p) && !Y_isnogc(ncl))  /* cache will not break GC invariant? */
+     p->cache = ncl;  /* save it on cache for reuse */
+ }
+ 
+diff -Naur lua-5.3.6/src/Makefile Lua-NOGC/src/Makefile
+--- lua-5.3.6/src/Makefile	2020-07-14 02:38:14.000000000 +0800
++++ Lua-NOGC/src/Makefile	2021-04-22 20:14:59.618615892 +0800
+@@ -31,7 +31,7 @@
+ LUA_A=	liblua.a
+ CORE_O=	lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o llex.o \
+ 	lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o ltable.o \
+-	ltm.o lundump.o lvm.o lzio.o
++	ltm.o lundump.o lvm.o lzio.o YGC.o
+ LIB_O=	lauxlib.o lbaselib.o lbitlib.o lcorolib.o ldblib.o liolib.o \
+ 	lmathlib.o loslib.o lstrlib.o ltablib.o lutf8lib.o loadlib.o linit.o
+ BASE_O= $(CORE_O) $(LIB_O) $(MYOBJS)
+@@ -95,22 +95,21 @@
+ 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN" SYSLIBS="-Wl,-E"
+ 
+ c89:
+-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_C89" CC="gcc -std=c89"
+ 	@echo ''
+-	@echo '*** C89 does not guarantee 64-bit integers for Lua.'
++	@echo '*** C89 does not support Lua-NOGC for Lua.'
+ 	@echo ''
+ 
+ 
+ freebsd:
+-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX -I/usr/include/edit" SYSLIBS="-Wl,-E -ledit" CC="cc"
++	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX -DLUA_USE_READLINE -I/usr/include/edit" SYSLIBS="-Wl,-E -ledit" CC="cc"
+ 
+ generic: $(ALL)
+ 
+ linux:
+-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline"
++	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline -lpthread"
+ 
+ macosx:
+-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_MACOSX" SYSLIBS="-lreadline"
++	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_MACOSX" SYSLIBS="-lreadline -lpthread"
+ 
+ mingw:
+ 	$(MAKE) "LUA_A=lua53.dll" "LUA_T=lua.exe" \
+@@ -133,7 +132,7 @@
+  lobject.h ltm.h lzio.h lmem.h ldebug.h ldo.h lfunc.h lgc.h lstring.h \
+  ltable.h lundump.h lvm.h
+ lauxlib.o: lauxlib.c lprefix.h lua.h luaconf.h lauxlib.h
+-lbaselib.o: lbaselib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
++lbaselib.o: lbaselib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h YGC.h
+ lbitlib.o: lbitlib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
+ lcode.o: lcode.c lprefix.h lua.h luaconf.h lcode.h llex.h lobject.h \
+  llimits.h lzio.h lmem.h lopcodes.h lparser.h ldebug.h lstate.h ltm.h \
+@@ -152,7 +151,7 @@
+ lfunc.o: lfunc.c lprefix.h lua.h luaconf.h lfunc.h lobject.h llimits.h \
+  lgc.h lstate.h ltm.h lzio.h lmem.h
+ lgc.o: lgc.c lprefix.h lua.h luaconf.h ldebug.h lstate.h lobject.h \
+- llimits.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lstring.h ltable.h
++ llimits.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lstring.h ltable.h YGC.h
+ linit.o: linit.c lprefix.h lua.h luaconf.h lualib.h lauxlib.h
+ liolib.o: liolib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
+ llex.o: llex.c lprefix.h lua.h luaconf.h lctype.h llimits.h ldebug.h \
+@@ -172,7 +171,7 @@
+  ldo.h lfunc.h lstring.h lgc.h ltable.h
+ lstate.o: lstate.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
+  lobject.h ltm.h lzio.h lmem.h ldebug.h ldo.h lfunc.h lgc.h llex.h \
+- lstring.h ltable.h
++ lstring.h ltable.h YGC.h
+ lstring.o: lstring.c lprefix.h lua.h luaconf.h ldebug.h lstate.h \
+  lobject.h llimits.h ltm.h lzio.h lmem.h ldo.h lstring.h lgc.h
+ lstrlib.o: lstrlib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
+@@ -190,8 +189,8 @@
+ lutf8lib.o: lutf8lib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
+ lvm.o: lvm.c lprefix.h lua.h luaconf.h ldebug.h lstate.h lobject.h \
+  llimits.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lopcodes.h lstring.h \
+- ltable.h lvm.h
++ ltable.h lvm.h YGC.h
+ lzio.o: lzio.c lprefix.h lua.h luaconf.h llimits.h lmem.h lstate.h \
+  lobject.h ltm.h lzio.h
+-
++YGC.o: YGC.c lgc.h lfunc.h ltable.h lstring.h lauxlib.h
+ # (end of Makefile)
+diff -Naur lua-5.3.6/src/YGC.c Lua-NOGC/src/YGC.c
+--- lua-5.3.6/src/YGC.c	1970-01-01 08:00:00.000000000 +0800
++++ Lua-NOGC/src/YGC.c	2021-04-22 20:23:35.358670213 +0800
+@@ -0,0 +1,544 @@
++/*
++ * @Author: Yuerer
++ * @Date: 2020-12-16 10:01:20
++ * @LastEditTime: 2021-04-19 16:47:36
++ */
++
++#include "YGC.h"
++
++#include <string.h>
++
++#include "lfunc.h"
++#include "ltable.h"
++#include "lstring.h"
++#include "lauxlib.h"
++
++#define Y_NOGCCCLOSE 0
++#define Y_NOGCOPEN   1
++#define Y_NOGCCOUNT  2
++#define Y_NOGCLEN    3
++
++#define Y_makenogc(x) l_setbit((x)->marked, Y_NOGCBIT)
++#define Y_clearnogc(x) resetbit((x)->marked, Y_NOGCBIT)
++
++static void Y_linkrevert (global_State *g, GCObject *o);
++static void Y_closeupvalue (lua_State *L, UpVal *u);
++static void Y_reallymarkobject (lua_State *L, GCObject *o, int b);
++static void Y_traverseproto (lua_State *L, Proto *f, int b);
++static void Y_traverseLclosure (lua_State *L, LClosure *cl, int b);
++static void Y_traversetable (lua_State *L, Table *h, int b);
++static int  Y_isweaktable (lua_State *L, const struct Table *h);
++
++#define Y_valis(x, b) (iscollectable(x) && (b ? !Y_isnogc(gcvalue(x)) : Y_isnogc(gcvalue(x))))
++#define Y_markvalue(L, o, b) { if (Y_valis(o, b)) Y_reallymarkobject(L, gcvalue(o), b); }
++#define Y_markobject(L, t, b) { Y_reallymarkobject(L, obj2gco(t), b); }
++#define Y_markobjectN(L, t, b) { if (t) Y_markobject(L, t, b); }
++#define Y_maskcolors (~(bitmask(BLACKBIT) | WHITEBITS))
++#define Y_makeblack(x) \
++    (x->marked = cast_byte((x->marked & Y_maskcolors) | cast(lu_byte, bitmask(BLACKBIT))))
++#define Y_resetobject(g,o) \
++    { Y_clearnogc(o); Y_makeblack(o); Y_linkrevert(g, o);  }
++
++
++static void Y_linkrevert (global_State *g, GCObject *o) {
++  GCObject **nogc = &g->Y_nogc;
++  while (*nogc != NULL) {
++    GCObject *curr = *nogc;
++    if (curr == o) {
++      *nogc = curr->next;
++      curr->next = g->allgc;
++      g->allgc = curr;
++      break;
++    }
++    nogc = &curr->next;
++  }
++}
++
++static void Y_closeupvalue (lua_State *L, UpVal *u) {
++  UpVal **up = &L->openupval;
++  while (*up != NULL) {
++    UpVal *uv = *up;
++    if (uv == u) {
++      *up = uv->u.open.next;
++      setobj(L, &uv->u.value, uv->v);
++      uv->v = &uv->u.value;
++      break;
++    }
++    up = &uv->u.open.next;
++  }
++}
++
++static void Y_reallymarkobject (lua_State *L, GCObject *o, int b) {
++  global_State *g = G(L);
++  switch (o->tt) {
++    case LUA_TSHRSTR: {
++      lu_mem mem = sizelstring(gco2ts(o)->shrlen);
++      if (b) {
++        Y_makenogc(o);
++      } else {
++        Y_resetobject(g, o);
++      }
++      g->Y_GCmemnogc += (b ? mem : -mem);
++      break;
++    }
++    case LUA_TLNGSTR: {
++      lu_mem mem = sizelstring(gco2ts(o)->u.lnglen);
++      if (b) {
++        Y_makenogc(o);
++      } else {
++        Y_resetobject(g, o);
++      }
++      g->Y_GCmemnogc += (b ? mem : -mem);
++      break;
++    }
++    case LUA_TTABLE: {
++      if (Y_isweaktable(L, gco2t(o))) {
++        luaL_error(L, "Not support weak tables");
++        break;
++      }
++      if (b) {
++        Y_makenogc(o);
++      } else {
++        Y_resetobject(g, o);
++      }
++      Y_traversetable(L, gco2t(o), b);
++      break;
++    }
++    case LUA_TLCL: {
++      if (b) {
++        Y_makenogc(o);
++      } else {
++        Y_resetobject(g, o);
++      }
++      Y_traverseLclosure(L, gco2lcl(o), b);
++      break;
++    }
++    case LUA_TPROTO: {
++      if (b) {
++        Y_makenogc(o);
++      } else {
++        Y_resetobject(g, o);
++      }
++      Y_traverseproto(L, gco2p(o), b);
++      break;
++    }
++    case LUA_TUSERDATA: {
++      luaL_error(L, "Not support userdata");
++      break;
++    }
++    case LUA_TTHREAD: {
++      luaL_error(L, "Not support thread");
++      break;
++    }
++    case LUA_TCCL: {
++      luaL_error(L, "Not support C function");
++      break;
++    }
++    default: break;
++  }
++}
++
++static void Y_traverseproto (lua_State *L, Proto *f, int b) {
++  if (f->cache && !Y_isnogc(f->cache)) {
++    f->cache = NULL;
++  }
++  int i;
++  Y_markobjectN(L, f->source, b);
++  for (i = 0; i < f->sizek; i ++) {
++    Y_markvalue(L, &f->k[i], b);
++  }
++  for (i = 0; i < f->sizeupvalues; i ++) {
++    Y_markobjectN(L, f->upvalues[i].name, b)
++  }
++  for (i = 0; i < f->sizep; i ++) {
++    Y_markobjectN(L, f->p[i], b);
++  }
++  for (i = 0; i <f->sizelocvars; i ++) {
++    Y_markobjectN(L, f->locvars[i].varname, b);
++  }
++  lu_mem mem = sizeof(Proto) + sizeof(Instruction) * f->sizecode +
++                         sizeof(Proto *) * f->sizep +
++                         sizeof(TValue) * f->sizek +
++                         sizeof(int) * f->sizelineinfo +
++                         sizeof(LocVar) * f->sizelocvars +
++                         sizeof(Upvaldesc) * f->sizeupvalues;
++  G(L)->Y_GCmemnogc += (b ? mem : -mem);
++}
++
++static void Y_traverseLclosure (lua_State *L, LClosure *cl, int b) {
++  int i;
++  Y_markobjectN(L, cl->p, b);
++  Table *reg = hvalue(&G(L)->l_registry);
++  const TValue *gt = luaH_getint(reg, LUA_RIDX_GLOBALS);
++  GCObject *gto = gcvalue(gt);
++
++  for (i = 0; i < cl->nupvalues; i ++) {
++    UpVal *uv = cl->upvals[i];
++    if (uv != NULL) {
++      GCObject *o = gcvalue(uv->v);
++      /* skip _ENV */
++      if (o == gto) continue;
++      if (b && upisopen(uv)) {
++        Y_closeupvalue(L, uv);
++      }
++      Y_markvalue(L, uv->v, b);
++    }
++  }
++  lu_mem mem = sizeLclosure(cl->nupvalues);
++  G(L)->Y_GCmemnogc += (b ? mem : -mem);
++}
++
++static void Y_traversetable (lua_State *L, Table *h, int b) {
++  Y_markobjectN(L, h->metatable, b);
++  Node *n, *limit = gnode(h, cast(size_t, sizenode(h)));
++  unsigned int i;
++  for (i = 0; i < h->sizearray; i++) {
++    Y_markvalue(L, &h->array[i], b);
++  }
++  for (n = gnode(h, 0); n < limit; n++) {
++    if (!ttisnil(gval(n))) {
++      Y_markvalue(L, gkey(n), b);
++      Y_markvalue(L, gval(n), b);
++    }
++  }
++  lu_mem mem = sizeof(Table) + sizeof(TValue) * h->sizearray +
++                         sizeof(Node) * cast(size_t, allocsizenode(h));
++  G(L)->Y_GCmemnogc += (b ? mem : -mem);
++}
++
++static int Y_isweaktable (lua_State *L, const struct Table *h) {
++  const char *weakkey, *weakvalue;
++  const TValue *mode = gfasttm(G(L), h->metatable, TM_MODE);
++  if (mode && ttisstring(mode) && 
++      ((weakkey = strchr(svalue(mode), 'k')),
++       (weakvalue = strchr(svalue(mode), 'v')),
++       (weakkey || weakvalue))) {
++    return 1;
++  }
++  return 0;
++}
++
++static const struct Table* Y_opttable (lua_State *L, int arg) {
++  if (lua_isnoneornil(L, arg) || lua_type(L, arg) != LUA_TTABLE) {
++    return NULL;
++  }
++  return cast(Table*, lua_topointer(L, arg));
++}
++
++static int Y_nogc (lua_State *L, int what, const struct Table *h) {
++  int res = 0;
++  global_State *g = G(L);
++  switch (what) {
++    case Y_NOGCCCLOSE: {
++      if (!h) {
++        luaL_argerror(L, 2, "Missing a table object");
++        break;
++      }
++      Y_markobject(L, h, Y_NOGCCCLOSE);
++      break;
++    }
++    case Y_NOGCOPEN: {
++      if (!h) {
++        luaL_argerror(L, 2, "Missing a table object");
++        break;
++      }
++      Y_markobject(L, h, Y_NOGCOPEN);
++      break;
++    }
++    case Y_NOGCCOUNT: {
++      res = cast_int(g->Y_GCmemnogc >> 10);
++      break;
++    }
++    case Y_NOGCLEN: {
++      GCObject *o = g->Y_nogc;
++      while (o) {
++        res ++;
++        o = o->next;
++      }
++      break;
++    }
++    default: res = -1;
++    
++  }
++  return res;
++}
++
++int nogc (lua_State *L) {
++  static const char* const opts[] = {"close", "open", "count",
++    "len", NULL};
++  static const int optsum[] = {Y_NOGCCCLOSE, Y_NOGCOPEN, Y_NOGCCOUNT,
++    Y_NOGCLEN};
++  int o = optsum[luaL_checkoption(L, 1, "count", opts)];
++  const struct Table *ex = Y_opttable(L, 2);
++  int res = Y_nogc(L, o, ex);
++  switch (o) {
++    case Y_NOGCCOUNT: {
++      lua_pushnumber(L, (lua_Number)res + ((lua_Number)res/1024));
++      return 1;
++    }
++    case Y_NOGCLEN: {
++      lua_pushinteger(L, res);
++      return 1;
++    }
++    default: return 0;
++  }
++  return 0;
++}
++
++/* ------------------------ Background Garbage Collect ------------------------ */
++
++#define Y_BGGCCLOSE 0
++#define Y_BGGCOPEN 1
++#define Y_BGGCISRUNNING 2
++
++static void Y_luaM_free_ (lua_State *L, void *block, size_t osize);
++static void *Y_luaM_malloc (lua_State *L, size_t nsize);
++static void Y_luaF_freeproto (lua_State *L, Proto *f);
++static void Y_luaH_free (lua_State *L, Table *t);
++static size_t Y_linkbgjob (Y_bgjob *j, GCObject *o);
++static void Y_upvdeccount (lua_State *L, LClosure *cl);
++static void Y_freeobj (lua_State *L, GCObject *o);
++static void *Y_bgProcessJobs (void *arg);
++
++#define Y_luaM_freemem(L, b, s) Y_luaM_free_(L, (b), (s))
++#define Y_luaM_free(L, b) Y_luaM_free_(L, (b), sizeof(*(b)))
++#define Y_luaM_freearray(L, b, n) Y_luaM_free_(L, (b), (n)*sizeof(*(b)))
++#define Y_luaM_new(L, t) cast(t*, Y_luaM_malloc(L, sizeof(t)))
++
++static void Y_luaM_free_ (lua_State *L, void *block, size_t osize) {
++  global_State *g = G(L);
++  (*g->frealloc)(g->ud, block, osize, 0);
++}
++
++static void *Y_luaM_malloc (lua_State *L, size_t nsize) {
++  global_State *g = G(L);
++  void *newblock = (*g->frealloc)(g->ud, NULL, 0, nsize);
++  return newblock;
++}
++
++static void Y_luaF_freeproto (lua_State *L, Proto *f) {
++  Y_luaM_freearray(L, f->code, f->sizecode);
++  Y_luaM_freearray(L, f->p, f->sizep);
++  Y_luaM_freearray(L, f->k, f->sizek);
++  Y_luaM_freearray(L, f->lineinfo, f->sizelineinfo);
++  Y_luaM_freearray(L, f->locvars, f->sizelocvars);
++  Y_luaM_freearray(L, f->upvalues, f->sizeupvalues);
++  Y_luaM_free(L, f);
++}
++
++static void Y_luaH_free (lua_State *L, Table *t) {
++  if (!isdummy(t))
++    Y_luaM_freearray(L, t->node, cast(size_t, sizenode(t)));
++  Y_luaM_freearray(L, t->array, t->sizearray);
++  Y_luaM_free(L, t);
++}
++
++static Y_bgjob *Y_jobs = NULL;
++struct Y_bgjob {
++  Y_bgjob *next;
++  GCObject *Y_bggc;
++};
++
++/* link GCObject to a background job 
++  and return the size of the GCObject 
++  that will be released */
++static size_t Y_linkbgjob (Y_bgjob *j, GCObject *o) {
++  o->next = j->Y_bggc;
++  j->Y_bggc = o;
++  size_t osize = 0;
++  switch (o->tt) {
++    case LUA_TPROTO: {
++      Proto *f = gco2p(o);
++      osize += sizeof(*(f->code)) * f->sizecode;
++      osize += sizeof(*(f->p)) * f->sizep;
++      osize += sizeof(*(f->k)) * f->sizek;
++      osize += sizeof(*(f->lineinfo)) * f->sizelineinfo;
++      osize += sizeof(*(f->locvars)) * f->sizelocvars;
++      osize += sizeof(*(f->upvalues)) * f->sizeupvalues;
++      osize += sizeof(*(f));
++      break;
++    }
++    case LUA_TLCL: osize = sizeLclosure(gco2lcl(o)->nupvalues); break;
++    case LUA_TCCL: osize = sizeCclosure(gco2ccl(o)->nupvalues); break;
++    case LUA_TTABLE: {
++      Table *t = gco2t(o);
++      if (!isdummy(t)) osize += sizeof(*(t->node)) * cast(size_t, sizenode(t));
++      osize += sizeof(*(t->array)) * t->sizearray;
++      osize += sizeof(*(t));
++      break;
++    }
++    case LUA_TUSERDATA: osize = sizeudata(gco2u(o)); break;
++    case LUA_TSHRSTR: osize = sizelstring(gco2ts(o)->shrlen); break;
++    case LUA_TLNGSTR: osize = sizelstring(gco2ts(o)->u.lnglen); break;
++    default: lua_assert(0);
++  }
++  return osize;
++}
++
++static void Y_upvdeccount (lua_State *L, LClosure *cl) {
++  int i;
++  for (i = 0; i < cl->nupvalues; i++) {
++    UpVal *uv = cl->upvals[i];
++    if (uv)
++      luaC_upvdeccount(L, uv);
++  }
++}
++
++static void Y_freeobj (lua_State *L, GCObject *o) {
++  /* threads are released in the main thread */
++  switch (o->tt) {
++    case LUA_TPROTO: Y_luaF_freeproto(L, gco2p(o)); break;
++    case LUA_TLCL: {
++      /* dec upvalue refcount in the main thread */
++      luaM_freemem(L, gco2lcl(o), sizeLclosure(gco2lcl(o)->nupvalues));
++      break;
++    }
++    case LUA_TCCL: {
++      Y_luaM_freemem(L, o, sizeCclosure(gco2ccl(o)->nupvalues));
++      break;
++    }
++    case LUA_TTABLE: Y_luaH_free(L, gco2t(o)); break;
++    case LUA_TUSERDATA: Y_luaM_freemem(L, o, sizeudata(gco2u(o))); break;
++    case LUA_TSHRSTR: {
++      /* remove it from hash table has been executed in the main thread */
++      Y_luaM_freemem(L, o, sizelstring(gco2ts(o)->shrlen));
++      break;
++    }
++    case LUA_TLNGSTR: {
++      Y_luaM_freemem(L, o, sizelstring(gco2ts(o)->u.lnglen));
++      break;
++    }
++    default: lua_assert(0);
++  }
++}
++
++void *Y_bgProcessJobs (void *arg) {
++  lua_State *L= cast(lua_State*, arg);
++  global_State *g = G(L);
++#if !defined(LUA_USE_WINDOWS)
++  pthread_mutex_lock(&g->Y_bgmutex);
++  while (1) {
++    Y_bgjob **p = &Y_jobs;
++    if (*p == NULL) {
++      pthread_cond_wait(&g->Y_bgcond, &g->Y_bgmutex);
++      continue;
++    }
++    Y_bgjob *curr = *p;
++    *p = curr->next;
++    pthread_mutex_unlock(&g->Y_bgmutex);
++    GCObject **op = &curr->Y_bggc;
++    while (*op != NULL) {
++      GCObject *curr = *op;
++      *op = curr->next;
++      Y_freeobj(L, curr);
++    }
++    Y_luaM_free(L, curr);
++    pthread_mutex_lock(&g->Y_bgmutex);
++  }
++#endif
++  return NULL;
++}
++
++Y_bgjob *Y_createbgjob (lua_State *L) {
++  if (!G(L)->Y_bgrunning) return NULL;
++  Y_bgjob *j = Y_luaM_new(L, Y_bgjob);
++  j->next = NULL;
++  j->Y_bggc = NULL;
++  return j;
++}
++
++void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
++  global_State *g = G(L);
++  if (!g->Y_bgrunning) return;
++#if !defined(LUA_USE_WINDOWS)
++  pthread_mutex_lock(&g->Y_bgmutex);
++  j->next = Y_jobs;
++  Y_jobs = j;
++  pthread_cond_signal(&g->Y_bgcond);
++  pthread_mutex_unlock(&g->Y_bgmutex);
++#endif
++}
++
++void Y_trybgfree (lua_State *L, GCObject *o, Y_bgjob *j, void(*fgfreeobj)(lua_State*, GCObject*)) {
++  global_State *g = G(L);
++  if (!g->Y_bgrunning) {
++    fgfreeobj(L, o);
++    return;
++  }
++  size_t osize = 0;
++  switch (o->tt) {
++    case LUA_TPROTO: osize = Y_linkbgjob(j, o); break;
++    case LUA_TLCL: {
++      Y_upvdeccount(L, gco2lcl(o));
++      Y_linkbgjob(j, o);
++      break;
++    }
++    case LUA_TCCL: osize = Y_linkbgjob(j, o); break;
++    case LUA_TTABLE: osize = Y_linkbgjob(j, o); break;
++    case LUA_TTHREAD: {
++      /* release the memory by the main thread */
++      luaE_freethread(L, gco2th(o));
++      break;
++    }
++    case LUA_TUSERDATA: osize = Y_linkbgjob(j, o); break;
++    case LUA_TSHRSTR:
++      /* remove it from hash table by main thread */
++      luaS_remove(L, gco2ts(o));
++      /* release the memory by background thread */
++      osize = Y_linkbgjob(j, o);
++      break;
++    case LUA_TLNGSTR: osize = Y_linkbgjob(j, o); break;
++    default: lua_assert(0);
++  }
++  g->GCdebt -= osize;
++}
++
++void Y_initstate (lua_State *L) {
++  global_State *g = G(L);
++  g->Y_nogc = NULL;
++  g->Y_GCmemnogc = 0;
++  g->Y_bgrunning = 0;
++#if !defined(LUA_USE_WINDOWS)
++  pthread_mutex_init(&g->Y_bgmutex, NULL);
++  pthread_cond_init(&g->Y_bgcond, NULL);
++  /* fixme: check return value */
++  pthread_create(&g->Y_bgthread, NULL, Y_bgProcessJobs, cast(void*, L));
++#endif
++}
++
++static int Y_bggc (lua_State *L, int what) {
++  int res = 0;
++  global_State *g = G(L);
++  switch (what) {
++    case Y_BGGCCLOSE: {
++      g->Y_bgrunning = 0;
++      break;
++    }
++    case Y_BGGCOPEN: {
++      g->Y_bgrunning = 1;
++      break;
++    }
++    case Y_BGGCISRUNNING: {
++      res = g->Y_bgrunning;
++      break;
++    }
++    default: res = -1;
++  }
++  return res;
++}
++
++#if defined(LUA_USE_WINDOWS)
++int bggc (lua_State *L) { luaL_error(L, "Not support for windows"); }
++#else
++int bggc (lua_State *L) {
++  static const char* const opts[] = {"close", "open", "isrunning", NULL};
++  static const int optsum[] = {Y_BGGCCLOSE, Y_BGGCOPEN, Y_BGGCISRUNNING};
++  int o = optsum[luaL_checkoption(L, 1, "isrunning", opts)];
++  int res = Y_bggc(L, o);
++  if (o == Y_BGGCISRUNNING) {
++    lua_pushinteger(L, res);
++    return 1;
++  }
++  return 0;
++}
++#endif
+\ No newline at end of file
+diff -Naur lua-5.3.6/src/YGC.h Lua-NOGC/src/YGC.h
+--- lua-5.3.6/src/YGC.h	1970-01-01 08:00:00.000000000 +0800
++++ Lua-NOGC/src/YGC.h	2021-04-22 20:24:26.638670909 +0800
+@@ -0,0 +1,40 @@
++/*
++ * @Author: Yuerer
++ * @Date: 2020-12-16 09:54:20
++ * @LastEditTime: 2021-04-19 20:45:01
++ */
++
++#ifndef YGC_H
++#define YGC_H
++
++#include "lgc.h"
++
++/* windows and c89 support nogc but not bggc */
++#if !defined(LUA_USE_WINDOWS)
++#include <pthread.h>
++#endif
++
++/* lgc.c */
++#define Y_NOGCBIT 4 /* object not to be collected */
++#define Y_isnogc(x) testbit((x)->marked, Y_NOGCBIT)
++
++/* lbaselib.c */
++int nogc (lua_State *L);
++int bggc (lua_State *L);
++
++/* lstate.c */
++void Y_initstate (lua_State *L);
++
++/* lgc.c */
++typedef struct Y_bgjob Y_bgjob;
++Y_bgjob* Y_createbgjob (lua_State *L);
++void Y_submitbgjob (lua_State *L, Y_bgjob *j);
++void Y_trybgfree (lua_State*,GCObject*,Y_bgjob*,void(*)(lua_State*, GCObject*));
++
++/* lbaselib.c */
++#define Y_BASEFUNCS \
++{"nogc", nogc}, \
++{"bggc", bggc}
++
++
++#endif
+\ No newline at end of file
