@@ -415,7 +415,7 @@ static void Y_freeobj (lua_State *L, GCObject *o) {
 void *Y_bgProcessJobs (void *arg) {
   lua_State *L= cast(lua_State*, arg);
   global_State *g = G(L);
-#if !defined(LUA_NO_SUPPORT_BGGC)
+#if !defined(LUA_USE_WINDOWS)
   pthread_mutex_lock(&g->Y_bgmutex);
   while (1) {
     Y_bgjob **p = &Y_jobs;
@@ -450,7 +450,7 @@ Y_bgjob *Y_createbgjob (lua_State *L) {
 void Y_submitbgjob (lua_State *L, Y_bgjob *j) {
   global_State *g = G(L);
   if (!g->Y_bgrunning) return;
-#if !defined(LUA_NO_SUPPORT_BGGC)
+#if !defined(LUA_USE_WINDOWS)
   pthread_mutex_lock(&g->Y_bgmutex);
   j->next = Y_jobs;
   Y_jobs = j;
@@ -498,7 +498,7 @@ void Y_initstate (lua_State *L) {
   g->Y_nogc = NULL;
   g->Y_GCmemnogc = 0;
   g->Y_bgrunning = 0;
-#if !defined(LUA_NO_SUPPORT_BGGC)
+#if !defined(LUA_USE_WINDOWS)
   pthread_mutex_init(&g->Y_bgmutex, NULL);
   pthread_cond_init(&g->Y_bgcond, NULL);
   /* fixme: check return value */
@@ -527,7 +527,7 @@ static int Y_bggc (lua_State *L, int what) {
   return res;
 }
 
-#if defined(LUA_NO_SUPPORT_BGGC)
+#if defined(LUA_USE_WINDOWS)
 int bggc (lua_State *L) { luaL_error(L, "Not support for windows"); }
 #else
 int bggc (lua_State *L) {

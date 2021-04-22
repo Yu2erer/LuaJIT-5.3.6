@@ -174,7 +174,7 @@ typedef struct global_State {
   GCObject *Y_nogc;  /* list of objects not to be traversed or collected */
   lu_mem Y_GCmemnogc; /* memory size of nogc linked list */
   lu_byte Y_bgrunning; /* true if Background GC is running */
-#if !defined(LUA_NO_SUPPORT_BGGC)
+#if !defined(LUA_USE_WINDOWS)
   pthread_t Y_bgthread; /* background pthread */
   pthread_mutex_t Y_bgmutex; /* background job mutex */
   pthread_cond_t Y_bgcond;
