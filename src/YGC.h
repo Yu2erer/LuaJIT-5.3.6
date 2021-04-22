@@ -9,7 +9,9 @@
 
 #include "lgc.h"
 
+#if !defined(LUA_NO_SUPPORT_BGGC)
 #include <pthread.h>
+#endif
 
 /* lgc.c */
 #define Y_NOGCBIT 4 /* object not to be collected */
@@ -32,5 +34,10 @@ void Y_trybgfree (lua_State*,GCObject*,Y_bgjob*,void(*)(lua_State*, GCObject*));
 #define Y_BASEFUNCS \
 {"nogc", nogc}, \
 {"bggc", bggc}
+
+/* windows and c89 support nogc but not bggc */
+#if defined(LUA_NO_SUPPORT_BGGC)
+#define LUA_NO_SUPPORT_BGGC
+#endif
 
 #endif
