@@ -7,7 +7,7 @@
 PLAT= none
 
 CC= gcc -std=gnu99
-CFLAGS= -O2 -Wall -Wextra -DLUA_COMPAT_5_2 $(SYSCFLAGS) $(MYCFLAGS)
+CFLAGS= -O2 -Wall -Wextra -DLUA_COMPAT_5_2 $(SYSCFLAGS) $(MYCFLAGS) -I ../mir/ -I ../mir/c2mir/
 LDFLAGS= $(SYSLDFLAGS) $(MYLDFLAGS)
 LIBS= -lm $(SYSLIBS) $(MYLIBS)
 
@@ -31,7 +31,7 @@ PLATS= aix bsd c89 freebsd generic linux macosx mingw posix solaris
 LUA_A=	liblua.a
 CORE_O=	lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o llex.o \
 	lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o ltable.o \
-	ltm.o lundump.o lvm.o lzio.o YGC.o
+	ltm.o lundump.o lvm.o lzio.o YMEM.o YGC.o YJIT.o
 LIB_O=	lauxlib.o lbaselib.o lbitlib.o lcorolib.o ldblib.o liolib.o \
 	lmathlib.o loslib.o lstrlib.o ltablib.o lutf8lib.o loadlib.o linit.o
 BASE_O= $(CORE_O) $(LIB_O) $(MYOBJS)
@@ -106,7 +106,7 @@ freebsd:
 generic: $(ALL)
 
 linux:
-	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline -lpthread"
+	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline -lpthread -L ../mir/build/ -lmir"
 
 macosx:
 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_MACOSX" SYSLIBS="-lreadline -lpthread"
@@ -192,5 +192,7 @@ lvm.o: lvm.c lprefix.h lua.h luaconf.h ldebug.h lstate.h lobject.h \
  ltable.h lvm.h YGC.h
 lzio.o: lzio.c lprefix.h lua.h luaconf.h llimits.h lmem.h lstate.h \
  lobject.h ltm.h lzio.h
-YGC.o: YGC.c lgc.h lfunc.h ltable.h lstring.h lauxlib.h
+YMEM.o: YMEM.h lstate.h
+YGC.o: YGC.c lgc.h lfunc.h ltable.h lstring.h lauxlib.h YMEM.h
+YJIT.o: YJIT.c YMEM.h
 # (end of Makefile)

@@ -15,6 +15,8 @@
 #include "llimits.h"
 #include "lua.h"
 
+#include "YJIT.h"
+
 
 /*
 ** Extra tags for non-values
@@ -426,6 +428,7 @@ typedef struct Proto {
   struct LClosure *cache;  /* last-created closure with this prototype */
   TString  *source;  /* used for debug information */
   GCObject *gclist;
+  YJIT_Proto *Y_jitproto;
 } Proto;
 
 

@@ -110,4 +110,13 @@ LUAI_FUNC lua_Integer luaV_mod (lua_State *L, lua_Integer x, lua_Integer y);
 LUAI_FUNC lua_Integer luaV_shiftl (lua_Integer x, lua_Integer y);
 LUAI_FUNC void luaV_objlen (lua_State *L, StkId ra, const TValue *rb);
 
+LUAI_FUNC void Y_luaV_gettable (lua_State *L, const TValue *t, TValue *k, StkId v);
+LUAI_FUNC void Y_luaV_settable (lua_State *L, const TValue *t, TValue *k, StkId v);
+LUAI_FUNC void Y_luaV_newtable (lua_State *L, CallInfo *ci, StkId ra, unsigned int nasize, unsigned int nhsize);
+LUAI_FUNC void Y_luaV_concat (lua_State *L, CallInfo *ci, int A, int B, int C);
+LUAI_FUNC void Y_luaV_closure (lua_State*L, CallInfo *ci, LClosure *cl, int A, int Bx);
+LUAI_FUNC void Y_luaV_setupval (lua_State *L, LClosure *cl, StkId ra, int B);
+LUAI_FUNC void Y_luaV_setlist (lua_State *L, CallInfo *ci, StkId ra, int B, int C);
+LUAI_FUNC void Y_luaV_vararg (lua_State *L, CallInfo *ci, LClosure *cl, int A, int B);
+
 #endif

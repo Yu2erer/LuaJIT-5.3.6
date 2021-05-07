@@ -13,6 +13,8 @@
 #include "lstring.h"
 #include "lauxlib.h"
 
+#include "YMEM.h"
+
 #define Y_NOGCCCLOSE 0
 #define Y_NOGCOPEN   1
 #define Y_NOGCCOUNT  2
@@ -266,9 +268,9 @@ static int Y_nogc (lua_State *L, int what, const struct Table *h) {
 int nogc (lua_State *L) {
   static const char* const opts[] = {"close", "open", "count",
     "len", NULL};
-  static const int optsum[] = {Y_NOGCCCLOSE, Y_NOGCOPEN, Y_NOGCCOUNT,
+  static const int optsnum[] = {Y_NOGCCCLOSE, Y_NOGCOPEN, Y_NOGCCOUNT,
     Y_NOGCLEN};
-  int o = optsum[luaL_checkoption(L, 1, "count", opts)];
+  int o = optsnum[luaL_checkoption(L, 1, "count", opts)];
   const struct Table *ex = Y_opttable(L, 2);
   int res = Y_nogc(L, o, ex);
   switch (o) {
@@ -285,36 +287,18 @@ int nogc (lua_State *L) {
   return 0;
 }
 
-/* ------------------------ Background Garbage Collect ------------------------ */
+/* --------------------- Background Garbage Collect --------------------- */
 
 #define Y_BGGCCLOSE 0
 #define Y_BGGCOPEN 1
 #define Y_BGGCISRUNNING 2
 
-static void Y_luaM_free_ (lua_State *L, void *block, size_t osize);
-static void *Y_luaM_malloc (lua_State *L, size_t nsize);
 static void Y_luaF_freeproto (lua_State *L, Proto *f);
 static void Y_luaH_free (lua_State *L, Table *t);
 static size_t Y_linkbgjob (Y_bgjob *j, GCObject *o);
 static void Y_upvdeccount (lua_State *L, LClosure *cl);
 static void Y_freeobj (lua_State *L, GCObject *o);
 static void *Y_bgProcessJobs (void *arg);
-
-#define Y_luaM_freemem(L, b, s) Y_luaM_free_(L, (b), (s))
-#define Y_luaM_free(L, b) Y_luaM_free_(L, (b), sizeof(*(b)))
-#define Y_luaM_freearray(L, b, n) Y_luaM_free_(L, (b), (n)*sizeof(*(b)))
-#define Y_luaM_new(L, t) cast(t*, Y_luaM_malloc(L, sizeof(t)))
-
-static void Y_luaM_free_ (lua_State *L, void *block, size_t osize) {
-  global_State *g = G(L);
-  (*g->frealloc)(g->ud, block, osize, 0);
-}
-
-static void *Y_luaM_malloc (lua_State *L, size_t nsize) {
-  global_State *g = G(L);
-  void *newblock = (*g->frealloc)(g->ud, NULL, 0, nsize);
-  return newblock;
-}
 
 static void Y_luaF_freeproto (lua_State *L, Proto *f) {
   Y_luaM_freearray(L, f->code, f->sizecode);
@@ -390,7 +374,7 @@ static void Y_freeobj (lua_State *L, GCObject *o) {
     case LUA_TPROTO: Y_luaF_freeproto(L, gco2p(o)); break;
     case LUA_TLCL: {
       /* dec upvalue refcount in the main thread */
-      luaM_freemem(L, gco2lcl(o), sizeLclosure(gco2lcl(o)->nupvalues));
+      Y_luaM_freemem(L, gco2lcl(o), sizeLclosure(gco2lcl(o)->nupvalues));
       break;
     }
     case LUA_TCCL: {
@@ -493,7 +477,7 @@ void Y_trybgfree (lua_State *L, GCObject *o, Y_bgjob *j, void(*fgfreeobj)(lua_St
   g->GCdebt -= osize;
 }
 
-void Y_initstate (lua_State *L) {
+void Y_initgcstate (lua_State *L) {
   global_State *g = G(L);
   g->Y_nogc = NULL;
   g->Y_GCmemnogc = 0;
@@ -532,11 +516,11 @@ int bggc (lua_State *L) { luaL_error(L, "Not support for windows"); }
 #else
 int bggc (lua_State *L) {
   static const char* const opts[] = {"close", "open", "isrunning", NULL};
-  static const int optsum[] = {Y_BGGCCLOSE, Y_BGGCOPEN, Y_BGGCISRUNNING};
-  int o = optsum[luaL_checkoption(L, 1, "isrunning", opts)];
+  static const int optsnum[] = {Y_BGGCCLOSE, Y_BGGCOPEN, Y_BGGCISRUNNING};
+  int o = optsnum[luaL_checkoption(L, 1, "isrunning", opts)];
   int res = Y_bggc(L, o);
   if (o == Y_BGGCISRUNNING) {
-    lua_pushinteger(L, res);
+    lua_pushboolean(L, res);
     return 1;
   }
   return 0;

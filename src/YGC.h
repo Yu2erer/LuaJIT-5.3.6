@@ -23,7 +23,7 @@ int nogc (lua_State *L);
 int bggc (lua_State *L);
 
 /* lstate.c */
-void Y_initstate (lua_State *L);
+void Y_initgcstate (lua_State *L);
 
 /* lgc.c */
 typedef struct Y_bgjob Y_bgjob;
@@ -32,8 +32,8 @@ void Y_submitbgjob (lua_State *L, Y_bgjob *j);
 void Y_trybgfree (lua_State*,GCObject*,Y_bgjob*,void(*)(lua_State*, GCObject*));
 
 /* lbaselib.c */
-#define Y_BASEFUNCS \
-{"nogc", nogc}, \
+#define Y_GCBASEFUNCS \
+{"nogc", nogc},       \
 {"bggc", bggc}
 
 

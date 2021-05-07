@@ -783,7 +783,106 @@ void luaV_finishOp (lua_State *L) {
   if (!luaV_fastset(L,t,k,slot,luaH_get,v)) \
     Protect(luaV_finishset(L,t,k,v,slot)); }
 
+#define Y_checkGC(L,c)  \
+	{ luaC_condGC(L, L->top = (c),  /* limit of live values */ \
+                         L->top = ci->top);  /* restore top */ \
+           luai_threadyield(L); }
 
+void Y_luaV_gettable (lua_State *L, const TValue *t, TValue *k, StkId v) {
+  const TValue *slot;
+  if (luaV_fastget(L, t, k, slot, luaH_get)) {
+    setobj2s(L, v, slot);
+  } else {
+    luaV_finishget(L, t, k, v, slot);
+  }
+}
+
+void Y_luaV_settable (lua_State *L, const TValue *t, TValue *k, StkId v) {
+  const TValue *slot;
+  if (!luaV_fastset(L,t,k,slot,luaH_get,v)) {
+    luaV_finishset(L,t,k,v,slot);
+  }
+}
+
+void Y_luaV_newtable (lua_State *L, CallInfo *ci, StkId ra, unsigned int nasize, unsigned int nhsize) {
+  Table *t = luaH_new(L);
+  sethvalue(L, ra, t);
+  if (nasize != 0 || nhsize != 0) {
+    luaH_resize(L, t, nasize, nhsize);
+  }
+  Y_checkGC(L, ra + 1);
+}
+
+void Y_luaV_concat (lua_State *L, CallInfo *ci, int A, int B, int C) {
+  StkId ra, rb;
+  StkId base = ci->u.l.base;
+  L->top = base + C + 1;
+  Protect(luaV_concat(L, C - B + 1));
+  ra = base + A;
+  rb = base + B;
+  setobj2s(L, ra, rb);
+  checkGC(L, (ra >= rb ? ra + 1 : rb));
+  L->top = ci->top;
+}
+
+void Y_luaV_closure (lua_State *L, CallInfo *ci, LClosure *cl, int A, int Bx) {
+  StkId base = ci->u.l.base;
+  StkId ra = base + A;
+  Proto *p = cl->p->p[Bx];
+  LClosure *ncl = getcached(p, cl->upvals, base);
+  if (ncl == NULL) {
+    pushclosure(L, p, cl->upvals, base, ra);
+  } else {
+    setclLvalue(L, ra, ncl);
+  }
+  checkGC(L, ra + 1);
+}
+
+void Y_luaV_setupval (lua_State *L, LClosure *cl, StkId ra, int B) {
+  UpVal *uv = cl->upvals[B];
+  setobj(L, uv->v, ra);
+  luaC_upvalbarrier(L, uv);
+}
+
+void Y_luaV_setlist (lua_State *L, CallInfo *ci, StkId ra, int B, int C) {
+  int n = B;
+  int c = C; /* adjusted before calling this function */
+  unsigned int last;
+  Table *h;
+  if (n == 0) n = cast_int(L->top - ra) - 1;
+  h = hvalue(ra);
+  last = ((c - 1) * LFIELDS_PER_FLUSH) + n;
+  if (last > h->sizearray) {
+    luaH_resizearray(L, h, last);
+  }
+  for (; n > 0; n --) {
+    TValue *val = ra + n;
+    luaH_setint(L, h, last --, val);
+    luaC_barrierback(L, h, val);
+  }
+  L->top = ci->top;
+}
+
+void Y_luaV_vararg (lua_State *L, CallInfo *ci, LClosure *cl, int A, int B) {
+  StkId base = ci->u.l.base;
+  StkId ra = base + A;
+  B --;
+  int n = cast_int(base - ci->func) - cl->p->numparams - 1;
+  if (n < 0) n = 0;
+  if (B < 0) {
+    B = n;
+    Protect(luaD_checkstack(L, n));
+    ra = base + A;
+    L->top = ra + n;
+  }
+  int j;
+  for (j = 0; j < B && j < n; j ++) {
+    setobj2s(L, ra + j, base - n + j);
+  }
+  for (; j < B; j ++) {
+    setnilvalue(ra + j);
+  }
+}
 
 void luaV_execute (lua_State *L) {
   CallInfo *ci = L->ci;

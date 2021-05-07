@@ -413,6 +413,7 @@ int luaD_poscall (lua_State *L, CallInfo *ci, StkId firstResult, int nres) {
 int luaD_precall (lua_State *L, StkId func, int nresults) {
   lua_CFunction f;
   CallInfo *ci;
+  global_State *g = G(L);
   switch (ttype(func)) {
     case LUA_TCCL:  /* C closure */
       f = clCvalue(func)->f;
@@ -460,6 +461,31 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
       ci->callstatus = CIST_LUA;
       if (L->hookmask & LUA_MASKCALL)
         callhook(L, ci);
+      YJIT_Status status = p->Y_jitproto->Y_jitstatus;
+      if (G(L)->mainthread == L && g->Y_jitstate->Y_jitrunning) {
+        if (status != YJIT_IS_COMPILED && status != YJIT_CANT_COMPILE) {
+          if (Y_compile(L, p)) g->Y_jitstate->Y_jitcount ++;
+        }
+        if (p->Y_jitproto->Y_jitfunc != NULL) {
+          ci->u.l.savedpc ++;
+          if (++L->nCcalls >= LUAI_MAXCCALLS) {
+            if (L->nCcalls == LUAI_MAXCCALLS) {
+              luaG_runerror(L, "stack overflow");
+            }
+            else if (L->nCcalls >= (LUAI_MAXCCALLS + (LUAI_MAXCCALLS >> 3))) {
+              luaD_throw(L, LUA_ERRERR);
+            }
+          }
+          L->nny ++;
+          n = (*p->Y_jitproto->Y_jitfunc)(L); /* poscall will be executed inside */
+          L->nny --;
+          L->nCcalls --;
+          /* precall -> poscall(return) -> fix top */
+          if (n) L->top = L->ci->top;
+          return 2;
+        }
+      }
+      p->Y_jitproto->Y_execcount ++;
       return 0;
     }
     default: {  /* not a function */

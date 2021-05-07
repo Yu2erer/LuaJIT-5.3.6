@@ -15,6 +15,7 @@
 
 
 #include "YGC.h"
+#include "YJIT.h"
 
 /*
 
@@ -179,6 +180,7 @@ typedef struct global_State {
   pthread_mutex_t Y_bgmutex; /* background job mutex */
   pthread_cond_t Y_bgcond;
 #endif
+  YJIT_State *Y_jitstate;
 } global_State;
 
 
