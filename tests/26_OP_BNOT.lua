@@ -6,8 +6,7 @@ end
 
 jit("compile", test)
 local res = test()
-assert(res == -11)
-
+assert(res == ~10)
 
 --[[
 function <../tests/26_OP_BNOT.lua:1,5> (4 instructions at 0x1459500)
@@ -27,8 +26,11 @@ upvalues (0) for 0x1459500:
 --[[
 ra = R(1);
 rb = R(0);
-rc = R(0);
+if (tointeger(rb, &ib)) {
+  setivalue(ra, intop(^, ~l_castS2U(0), ib));
+} else {
 ci->u.l.savedpc = &cl->p->code[2];
-luaO_arith(L, 13, rb, rc, ra);
+  luaT_trybinTM(L, rb, rb, ra, TM_BNOT);
 base = ci->u.l.base;
+}
 ]]

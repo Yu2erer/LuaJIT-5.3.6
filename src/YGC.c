@@ -234,7 +234,6 @@ static int Y_nogc (lua_State *L, int what, const struct Table *h) {
     case Y_NOGCCCLOSE: {
       if (!h) {
         luaL_argerror(L, 2, "Missing a table object");
-        break;
       }
       Y_markobject(L, h, Y_NOGCCCLOSE);
       break;
@@ -242,7 +241,6 @@ static int Y_nogc (lua_State *L, int what, const struct Table *h) {
     case Y_NOGCOPEN: {
       if (!h) {
         luaL_argerror(L, 2, "Missing a table object");
-        break;
       }
       Y_markobject(L, h, Y_NOGCOPEN);
       break;

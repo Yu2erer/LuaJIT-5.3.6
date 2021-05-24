@@ -5,7 +5,7 @@ end
 
 jit("compile", test)
 local res = test()
-assert(res == 5)
+assert(res == #t)
 
 --[[
 function <../tests/28_OP_LEN.lua:2,4> (4 instructions at 0x79b7e0)

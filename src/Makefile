@@ -7,7 +7,7 @@
 PLAT= none
 
 CC= gcc -std=gnu99
-CFLAGS= -O2 -Wall -Wextra -DLUA_COMPAT_5_2 $(SYSCFLAGS) $(MYCFLAGS) -I ../mir/ -I ../mir/c2mir/
+CFLAGS= -O2 -Wall -Wextra -DLUA_COMPAT_5_2 $(SYSCFLAGS) $(MYCFLAGS) -I../mir/ -I../mir/c2mir/
 LDFLAGS= $(SYSLDFLAGS) $(MYLDFLAGS)
 LIBS= -lm $(SYSLIBS) $(MYLIBS)
 
@@ -20,8 +20,8 @@ SYSLDFLAGS=
 SYSLIBS=
 
 MYCFLAGS=
-MYLDFLAGS=
-MYLIBS=
+MYLDFLAGS=-L../mir/
+MYLIBS=-lmir
 MYOBJS=
 
 # == END OF USER SETTINGS -- NO NEED TO CHANGE ANYTHING BELOW THIS LINE =======
@@ -66,6 +66,7 @@ $(LUAC_T): $(LUAC_O) $(LUA_A)
 	$(CC) -o $@ $(LDFLAGS) $(LUAC_O) $(LUA_A) $(LIBS)
 
 clean:
+	cd ../mir && $(MAKE) clean && cd ../src
 	$(RM) $(ALL_T) $(ALL_O)
 
 depend:
@@ -106,6 +107,7 @@ freebsd:
 generic: $(ALL)
 
 linux:
+	$(MAKE) -C ../mir
 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX" SYSLIBS="-Wl,-E -ldl -lreadline -lpthread -L ../mir/build/ -lmir"
 
 macosx:

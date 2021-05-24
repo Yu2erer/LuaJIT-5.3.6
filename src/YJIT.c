@@ -1,7 +1,7 @@
 /*
  * @Author: Yuerer
  * @Date: 2021-05-19 20:05:20
- * @LastEditTime: 2021-05-19 20:06:20
+ * @LastEditTime: 2021-05-27 14:25:20
  */
 
 #include "YJIT.h"
@@ -25,7 +25,7 @@ void Y_initjitstate (lua_State *L) {
   g->Y_jitstate->Y_c2miropts.message_file = stderr;
   g->Y_jitstate->Y_c2miropts.module_num = 0;
   g->Y_jitstate->Y_jitrunning = 1;
-  g->Y_jitstate->Y_limitsize = 150;
+  g->Y_jitstate->Y_limitsize = 100;
   g->Y_jitstate->Y_limitcount = 50;
   g->Y_jitstate->Y_jitcount = 0;
 }
@@ -128,19 +128,20 @@ static Y_luafunction LUA_FUNCTIONS[] = {
   {"Y_luaV_setupval", Y_luaV_setupval},
   {"Y_luaV_setlist", Y_luaV_setlist},
   {"Y_luaV_vararg", Y_luaV_vararg},
+  {"luaD_precall", luaD_precall},
+  {"luaD_poscall", luaD_poscall},
+  {"luaD_call", luaD_call},
+  {"luaG_runerror", luaG_runerror},
+  {"luaO_arith", luaO_arith},
   {"luaV_objlen", luaV_objlen},
   {"luaV_execute", luaV_execute},
   {"luaV_equalobj", luaV_equalobj},
   {"luaV_lessthan", luaV_lessthan},
   {"luaV_lessequal", luaV_lessequal},
   {"luaV_tonumber_", luaV_tonumber_},
-  {"luaG_runerror", luaG_runerror},
-  {"luaD_precall", luaD_precall},
-  {"luaD_poscall", luaD_poscall},
-  {"luaD_call", luaD_call},
-  {"luaO_arith", luaO_arith},
+  {"luaV_tointeger", luaV_tointeger},
+  {"luaT_trybinTM", luaT_trybinTM},
   {"luaF_close", luaF_close},
-  {"printf", printf},
   {NULL, NULL},
 };
 
@@ -299,17 +300,190 @@ static void emit_self (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
   PROTECT_BASE;
 }
 
-/* 13-26: todo: poor efficiency 
-  R(A) := RK(B) op RK(C)
-  R(A) := op R(B) */
-static void emit_arith (int A, int B, int C, int savedpc, OpCode op, Y_jitbuffer *buff) {
+/* 13: R(A) := RK(B) + RK(C) */
+static void emit_add (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (ttisinteger(rb) && ttisinteger(rc)) {");
+  CODE("  ib = ivalue(rb); ic = ivalue(rc);");
+  CODE("  setivalue(ra, intop(+, ib, ic));");
+  CODE("} else if (tonumber(rb, &nb) && tonumber(rc, &nc)) {");
+  CODE("  setfltvalue(ra, luai_numadd(L, nb, nc));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_ADD);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 14: R(A) := RK(B) - RK(C) */
+static void emit_sub (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (ttisinteger(rb) && ttisinteger(rc)) {");
+  CODE("  ib = ivalue(rb); ic = ivalue(rc);");
+  CODE("  setivalue(ra, intop(-, ib, ic));");
+  CODE("} else if (tonumber(rb, &nb) && tonumber(rc, &nc)) {");
+  CODE("  setfltvalue(ra, luai_numsub(L, nb, nc));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_SUB);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 15: R(A) := RK(B) * RK(C) */
+static void emit_mul (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (ttisinteger(rb) && ttisinteger(rc)) {");
+  CODE("  ib = ivalue(rb); ic = ivalue(rc);");
+  CODE("  setivalue(ra, intop(*, ib, ic));");
+  CODE("} else if (tonumber(rb, &nb) && tonumber(rc, &nc)) {");
+  CODE("  setfltvalue(ra, luai_nummul(L, nb, nc));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_MUL);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 16: R(A) := RK(B) % RK(C) */
+static void emit_mod (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
   RA;
   RKB;
   RKC;
   UPDATE_SAVEDPC;
-  /* opcode - OP_ADD == arith op */
-  CODE("luaO_arith(L, %d, rb, rc, ra);", cast_int(op - OP_ADD));
+  CODE("luaO_arith(L, %d, rb, rc, ra);", LUA_OPMOD);
   PROTECT_BASE;
+}
+
+/* 17: R(A) := RK(B) ^ RK(C) */
+static void emit_pow (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  UPDATE_SAVEDPC;
+  CODE("luaO_arith(L, %d, rb, rc, ra);", LUA_OPPOW);
+  PROTECT_BASE;
+}
+
+/* 18: R(A) := RK(B) / RK(C) */
+static void emit_div (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (tonumber(rb, &nb) && tonumber(rc, &nc)) {");
+  CODE("  setfltvalue(ra, luai_numdiv(L, nb, nc));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_DIV);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 19: R(A) := RK(B) // RK(C) */
+static void emit_idiv (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  UPDATE_SAVEDPC;
+  CODE("luaO_arith(L, %d, rb, rc, ra);", LUA_OPIDIV);
+  PROTECT_BASE;
+}
+
+/* 20: R(A) := RK(B) & RK(C) */
+static void emit_band (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (tointeger(rb, &ib) && tointeger(rc, &ic)) {");
+  CODE("  setivalue(ra, intop(&, ib, ic));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_BAND);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 21: R(A) := RK(B) | RK(C) */
+static void emit_bor (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (tointeger(rb, &ib) && tointeger(rc, &ic)) {");
+  CODE("  setivalue(ra, intop(|, ib, ic));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_BOR);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 22: R(A) := RK(B) ~ RK(C) */
+static void emit_bxor (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  CODE("if (tointeger(rb, &ib) && tointeger(rc, &ic)) {");
+  CODE("  setivalue(ra, intop(^, ib, ic));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rc, ra, TM_BXOR);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 23: R(A) := RK(B) << RK(C) */
+static void emit_shl (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  UPDATE_SAVEDPC;
+  CODE("luaO_arith(L, %d, rb, rc, ra);", LUA_OPSHL);
+  PROTECT_BASE;
+}
+
+/* 24: R(A) := RK(B) >> RK(C) */
+static void emit_shr (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RKB;
+  RKC;
+  UPDATE_SAVEDPC;
+  CODE("luaO_arith(L, %d, rb, rc, ra);", LUA_OPSHR);
+  PROTECT_BASE;
+}
+
+/* 25: R(A) := -R(B) */
+static void emit_unm (int A, int B, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RB;
+  CODE("if (ttisinteger(rb)) {");
+  CODE("  ib = ivalue(rb);");
+  CODE("  setivalue(ra, intop(-, 0, ib));");
+  CODE("} else if (tonumber(rb, &nb)) {");
+  CODE("  setfltvalue(ra, luai_numunm(L, nb));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rb, ra, TM_UNM);");
+  PROTECT_BASE;
+  CODE("}");
+}
+
+/* 26: R(A) := ~R(B) */
+static void emit_bnot (int A, int B, int savedpc, Y_jitbuffer *buff) {
+  RA;
+  RB;
+  CODE("if (tointeger(rb, &ib)) {");
+  CODE("  setivalue(ra, intop(^, ~l_castS2U(0), ib));");
+  CODE("} else {");
+  UPDATE_SAVEDPC;
+  CODE("  luaT_trybinTM(L, rb, rb, ra, TM_BNOT);");
+  PROTECT_BASE;
+  CODE("}");
 }
 
 /* 27: R(A) := not R(B) */
@@ -421,7 +595,10 @@ static void emit_call (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
   CODE("      L->top = ci->top;");
   CODE("  }");
   CODE("} else {");
-  CODE("  luaV_execute(L);");
+  /* when we call a lua function in the jit function
+    , we need to fix the top of the stack by ourselves */
+  CODE("  result = luaV_execute(L);");
+  CODE("  if (result) L->top = ci->top;");
   CODE("}");
   PROTECT_BASE;
 }
@@ -543,8 +720,10 @@ static void emit_vararg (int A, int B, Y_jitbuffer *buff) {
 
 #define OPEN_FUNC(name)                             \
   do {                                              \
-    CODE("int %s (lua_State *L) {", name);         \
+    CODE("int %s (lua_State *L) {", name);          \
     CODE("int result = 0;");                        \
+    CODE("lua_Integer ib = 0, ic = 0;");            \
+    CODE("lua_Number nb = 0.0, nc = 0.0;");         \
     CODE("StkId ra = NULL, rb = NULL, rc = NULL;"); \
     CODE("CallInfo *ci = L->ci;");                  \
     CODE("LClosure *cl = clLvalue(ci->func);");     \
@@ -591,7 +770,6 @@ static void Y_setjmps (Proto *p, lu_byte *is_jmps) {
 static void Y_codegen (lua_State *L, Proto *p, const char *name, Y_jitbuffer *buff) {
   Y_str2buffer(buff, LUA_HEADER);
   OPEN_FUNC(name);
-  // CODE("printf(\"i come from jit\\n\");");
   const Instruction *code = p->code;
   Instruction i;
   lu_byte *is_jmps = Y_luaM_newvector(L, p->sizecode, lu_byte);
@@ -665,21 +843,60 @@ static void Y_codegen (lua_State *L, Proto *p, const char *name, Y_jitbuffer *bu
         emit_self(A, B, C, pc + 1, buff);
         break;
       }
-      case OP_ADD:
-      case OP_SUB:
-      case OP_MUL:
-      case OP_DIV:
-      case OP_BAND:
-      case OP_BOR:
-      case OP_BXOR:
-      case OP_SHL:
-      case OP_SHR:
-      case OP_MOD:
-      case OP_IDIV:
-      case OP_POW:
-      case OP_UNM:
+      case OP_ADD: {
+        emit_add(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_SUB: {
+        emit_sub(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_MUL: {
+        emit_mul(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_MOD: {
+        emit_mod(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_POW: {
+        emit_pow(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_DIV: {
+        emit_div(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_IDIV: {
+        emit_idiv(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_BAND: {
+        emit_band(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_BOR: {
+        emit_bor(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_BXOR: {
+        emit_bxor(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_SHL: {
+        emit_shl(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_SHR: {
+        emit_shr(A, B, C, pc + 1, buff);
+        break;
+      }
+      case OP_UNM: {
+        emit_unm(A, B, pc + 1, buff);
+        break;
+      }
       case OP_BNOT: {
-        emit_arith(A, B, C, pc + 1, op, buff);
+        emit_bnot(A, B, pc + 1, buff);
         break;
       }
       case OP_NOT: {
@@ -811,7 +1028,7 @@ int Y_compile (lua_State *L, Proto *p) {
   int tocompile = 0;
   if (status == YJIT_MUST_COMPILE) {
     tocompile = 1;
-  } else if (p->sizecode > g->Y_jitstate->Y_limitsize || 
+  } else if (p->sizecode > g->Y_jitstate->Y_limitsize && 
       p->Y_jitproto->Y_execcount > g->Y_jitstate->Y_limitcount) {
     tocompile = 1;
   }
@@ -863,9 +1080,6 @@ int Y_compile (lua_State *L, Proto *p) {
     goto CLEANUP;
   }
 CLEANUP:
-  if (is_success == 0) {
-    printf("Build ERROR\n");
-  }
   MIR_gen_finish(ctx);
   c2mir_finish(ctx);
   Y_freebuffer(&buff);
@@ -960,7 +1174,7 @@ int jit (lua_State *L) {
       Y_jitbuffer buff;
       Y_initbuffer(L, &buff, strlen(LUA_HEADER) + 4096);
       Y_codegen(L, p, "Y_codegen_", &buff);
-      lua_pushlstring(L, buff.buffer, strlen(buff.buffer));
+      lua_pushlstring(L, buff.buffer, buff.size);
       Y_freebuffer(&buff);
       return 1;
     }
@@ -979,12 +1193,6 @@ int jit (lua_State *L) {
   }
   return 0;
 }
-
-
-
-
-
-
 
 static const char LUA_HEADER[] = {
   "#ifdef __MIRC__\n"
@@ -1037,9 +1245,6 @@ static const char LUA_HEADER[] = {
     "#define lua_assert(c)		((void)0)\n"
     "#define check_exp(c,e)		(e)\n"
     "#define lua_longassert(c)	((void)0)\n"
-    "#define luai_apicheck(l,e)	lua_assert(e)\n"
-    "#define api_check(l,e,msg)	luai_apicheck(l,(e) && msg)\n"
-    "#define UNUSED(x)	((void)(x))\n"
     "#define cast(t, exp)	((t)(exp))\n"
     "#define cast_void(i)	cast(void, (i))\n"
     "#define cast_byte(i)	cast(lu_byte, (i))\n"
@@ -1050,10 +1255,12 @@ static const char LUA_HEADER[] = {
     "#define l_castU2S(i)	((lua_Integer)(i))\n"
     "#define l_noret		void\n"
     "typedef unsigned int Instruction;\n"
-    "#define luai_numidiv(L,a,b)     ((void)L, l_floor(luai_numdiv(L,a,b)))\n"
     "#define luai_numdiv(L,a,b)      ((a)/(b))\n"
-    "#define luai_nummod(L,a,b,m)  \\\n"
-    "  { (m) = l_mathop(fmod)(a,b); if ((m)*(b) < 0) (m) += (b); }\n"
+    "#define luai_numadd(L,a,b)      ((a)+(b))\n"
+    "#define luai_numsub(L,a,b)      ((a)-(b))\n"
+    "#define luai_nummul(L,a,b)      ((a)*(b))\n"
+    "#define luai_numunm(L,a)        (-(a))\n"
+    "#define luai_numeq(a,b)         ((a)==(b))\n"
     "#define LUA_TLCL	(LUA_TFUNCTION | (0 << 4))\n"
     "#define LUA_TLCF	(LUA_TFUNCTION | (1 << 4))\n"
     "#define LUA_TCCL	(LUA_TFUNCTION | (2 << 4))\n"
@@ -1182,8 +1389,6 @@ static const char LUA_HEADER[] = {
     "    checkliveness(L,io); }\n"
     "#define setdeadvalue(obj)	settt_(obj, LUA_TDEADKEY)\n"
     "#define setobj(L,obj1,obj2) \\\n"
-    // NOTE we cannot use aggregate assign so following assigns by field but assumes
-    // n covers all value types
     "	{ TValue *io1=(obj1); const TValue *io2=(obj2); io1->tt_ = io2->tt_; val_(io1).n = val_(io2).n; \\\n"
     "	  (void)L; }\n"
     "#define setobjs2s	setobj\n"
@@ -1355,18 +1560,6 @@ static const char LUA_HEADER[] = {
     "	lu_byte jitstatus;\n"
     "   lu_byte magic;\n"
     "} CallInfo;\n"
-    "#define CIST_OAH	(1<<0)\n"
-    "#define CIST_LUA	(1<<1)\n"
-    "#define CIST_HOOKED	(1<<2)\n"
-    "#define CIST_FRESH	(1<<3)\n"
-    "#define CIST_YPCALL	(1<<4)\n"
-    "#define CIST_TAIL	(1<<5)\n"
-    "#define CIST_HOOKYIELD	(1<<6)\n"
-    "#define CIST_LEQ	(1<<7)\n"
-    "#define CIST_FIN	(1<<8)\n"
-    "#define isLua(ci)	((ci)->callstatus & CIST_LUA)\n"
-    "#define setoah(st,v)	((st) = ((st) & ~CIST_OAH) | (v))\n"
-    "#define getoah(st)	((st) & CIST_OAH)\n"
     "typedef struct global_State global_State;\n"
     "struct lua_State {\n"
     "	CommonHeader;\n"
@@ -1436,7 +1629,5 @@ static const char LUA_HEADER[] = {
     "#define R(i) (base + i)\n"
     "#define K(i) (k + i)\n"
     "#define intop(op,v1,v2) l_castU2S(l_castS2U(v1) op l_castS2U(v2))\n"
-    "#define nan (0./0.)\n"
-    "#define inf (1./0.)\n"
-    "#define luai_numunm(L,a)        (-(a))\n\n\n"
+    "#define inf (1./0.)\n\n"
 };

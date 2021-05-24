@@ -6,7 +6,7 @@ end
 
 jit("compile", test)
 local res = test()
-assert(res == true)
+assert(res == not false)
 
 --[[
 function <../tests/27_OP_NOT.lua:1,5> (4 instructions at 0x20d6500)

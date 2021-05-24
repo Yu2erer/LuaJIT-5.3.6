@@ -5,7 +5,7 @@ end
 
 jit("compile", test)
 local res = test()
-assert(res == "hello World jit")
+assert(res == "hello" .. " ".. "World" .. " " .. "jit")
 
 --[[
 function <../tests/29_OP_CONCAT.lua:1,4> (8 instructions at 0x1057500)

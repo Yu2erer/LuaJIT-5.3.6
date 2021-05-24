@@ -1,62 +1,58 @@
-# Lua-NOGC
+# LuaJIT 5.3.6
 <p align="center">
 <a href="https://github.com/Yu2erer/Lua-NOGC/actions?query=workflow%3ALua-5.3.6"><img src="https://github.com/Yu2erer/Lua-NOGC/workflows/Lua5.3.6/badge.svg"></a>
 </p>
 
-`Lua-NOGC` 是基于 Lua 5.3.6 实现的一个 `多线程` 垃圾回收优化的扩展版本。
+LuaJIT 5.3.6 原名 `Lua-NOGC`，是基于 `Lua 5.3.6` 实现的一个垃圾回收优化的扩展版本。
 
-## 实现原理
-垃圾回收优化主要由以下两部分组成。
-1. `BGGC` 通过创建一个 `Background` 线程，将垃圾回收的任务交给 后台线程 去处理。
-2. `NOGC` 通过减少垃圾回收所要扫描及清理的对象，避免扫描和清理一些不需要回收的对象，比如 Lua 的配置表和一些全局闭包，以此来达到垃圾回收提速的效果。
-
-通过 `BGGC` 的优化，当全量回收时，可以减少将近 `50%` 的时间消耗。
-
-通过 `NOGC` 的优化，理论上提速的效果取决于 `(不需要回收的对象的个数 / 虚拟机中总对象个数)`
-
-换句话说就是给不需要垃圾回收的对象打上标记，跳过对它的扫描与清理。
-
-当不需要回收的对象越多，垃圾回收提升的效率越明显。
-
-具体参见 [Lua GC垃圾回收优化方案](https://yuerer.com/Lua-GC%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88/)
-
+后来又基于 `Lua 5.3.6` 实现了 `Just-In-Time Compiler(JIT)`，改名为 `LuaJIT 5.3.6`。
 
 ## 使用方法
-Lua-NOGC 只提供了两个 Lua 函数，分别是 `bggc` 和 `nogc`。
+LuaJIT 5.3.6 一共提供了三个 Lua 函数，其中关于垃圾回收优化的有 `bggc` 和 `nogc`。
+
+#### BGGC 示例
+
 > bggc([opt)
 
-bggc 只有一个参数 opt，通过参数 opt 它提供一组不同的功能。
-* "close": 表示关闭 后台线程 进行垃圾回收
-* "open": 表示开启 后台线程 进行垃圾回收
-* "isrunning": 返回值为 0 或 1，表示 后台线程 垃圾回收是否开启
+bggc 只有一个参数 opt，通过参数 opt 提供一组不同的功能。
+* "open": 表示开启后台线程垃圾回收，默认关闭
+* "close": 表示关闭后台线程垃圾回收
+* "isrunning": 返回值为0或1，表示后台线程垃圾回收是否开启
 
-### BGGC 示例
-```lua
-bggc("close") -- 关闭后台线程 垃圾回收
-
-bggc("open") -- 开启后台线程 垃圾回收
-```
+#### NOGC 示例
 
 > nogc([opt, [, arg])
 
-这个函数是 NOGC 的通用接口，通过参数 opt 它提供了一组不同的功能，第二参数始终只接受 table 或 nil（当不需要时）：
-* "open": 表示对这个 table 进行递归标记，保证其不被扫描与清理，需要第二参数
-* "close": 相当于关闭 nogc 的功能，使其恢复 Lua 垃圾回收的接管，需要第二参数
+这个函数是 NOGC 的通用接口，通过参数 opt 提供了一组不同的功能，第二参数始终只接受 table 或 nil（当不需要时）：
+* "open": 表示对这个 table 进行递归标记，保证其及其成员不被扫描与清理，需要第二参数(table)
+* "close": 相当于关闭 nogc 的功能，使其恢复 Lua 垃圾回收的接管，需要第二参数(table)
 * "len": 返回当前不被 Lua 垃圾回收管理的对象个数，不需要第二参数
 * "count": 返回当前不被 Lua 垃圾回收管理的对象的总内存大小，其单位为K，不需要第二参数
 
-### NOGC 示例
 ```lua
-configTable = {a = "test", b = true, c = 100} -- 创建一张 配置表
-
-nogc("open", configTable) -- 标记该 table 不被 Lua 垃圾回收管理，提速
-
+configTable = {a = "test", b = true, c = 100} -- 创建一张配置表
+nogc("open", configTable) -- 标记该 table 不被 Lua 垃圾回收管理
 print(nogc("len")) -- 返回不被 Lua 垃圾回收管理的对象个数
-
 print(nogc("count")) -- 返回当前不被 Lua 垃圾回收管理的对象的总内存大小，其单位为K
-
 nogc("close", configTable) -- 恢复该 table 的标记，使其能够被 Lua 垃圾回收
 ```
+
+#### jit 示例
+
+> jit([opt, [, arg])
+
+该函数为 JIT 的通用接口，通过参数 opt 提供了一组不同的功能，第二参数只接受 `Lua function` 或者 `int`。
+
+* "open": 表示开启自动 JIT 编译，默认开启
+* "close": 表示关闭自动 JIT 编译
+* "isrunning": 返回自动 JIT 编译是否开启
+* "count": 返回已经 JIT 编译的函数个数
+* "compile": 第二参数为 Lua function, 将其编译
+* "iscompiled": 第二参数为 Lua function, 返回其是否已编译
+* "setlimitsize": 第二参数为 int, 表示触发自动编译的函数大小的最小值
+* "setlimitcount": 第二参数为 int, 表示触发自动编译函数执行次数的最小值
+
+只有当 `函数的大小 > limitsize` 且 `函数的执行次数 > limitcount` 才会触发编译。
 
 ## 注意事项
 `BGGC` 没有需要注意的，这意味着你可以只用 `bggc` 以一个最小的成本获得一个不错的垃圾回收效率的提升。
@@ -87,8 +83,14 @@ table[#table] = ? -- 插入新的值
 nogc("open", table) -- 重新打开 NOGC
 ```
 
+`JIT` 需要注意以下几点:
+* JIT 函数执行是以模拟C函数的形式执行，因此限制和C函数一致，调用次数不能超过 `LUAI_MAXCCALLS(200)次`。
+* `OP_TAILCALL` 默认实现为 `OP_CALL`，因此调用次数也不能超过 `LUAI_MAXCCALLS(200)`。
+* 当 Lua函数 JIT编译 后，`debug` 库的相关的 hook，都会失效，因为 Lua支持按指令 hook，对性能有一定的影响。
+
+
 ## 如何接入项目？
-跟 官方的 `Lua5.3` 相同的使用方式。
+跟官方的 `Lua5.3` 相同的使用方式。
 
 `BGGC` 不支持 `windows` 主要是 `windows` 不支持 `pthread`，但是依然可以编译，只是用不了这一个功能。
 
@@ -114,3 +116,11 @@ make linux test # 其中 linux 为相应平台，不支持 c89 编译。
 > 参考 注意事项 中的代码示例。
 8. 你说的这么好，垃圾回收提速多少呢？
 > 经过测试，`bggc` 开启了后台线程优化后，大约能提升 `50%`。`nogc` 则取决于你不需要参与垃圾回收的对象数量。
+9. JIT 后，能提速多少呢？
+> 经过测试, `JIT` 开启后, 最大能有 7倍 的提升。
+
+## Thanks
+LuaJIT 5.3.6 backend [mir](https://github.com/vnmakarov/mir)
+
+## LICENSE
+LuaJIT 5.3.6 is released under the MIT license. See LICENSE for details.

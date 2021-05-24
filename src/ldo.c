@@ -485,8 +485,8 @@ int luaD_precall (lua_State *L, StkId func, int nresults, int need_adjust) {
           if (need_adjust && n) L->top = L->ci->top;
           return 2;
         }
+        p->Y_jitproto->Y_execcount ++;
       }
-      p->Y_jitproto->Y_execcount ++;
       return 0;
     }
     default: {  /* not a function */

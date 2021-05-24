@@ -884,7 +884,7 @@ void Y_luaV_vararg (lua_State *L, CallInfo *ci, LClosure *cl, int A, int B) {
   }
 }
 
-void luaV_execute (lua_State *L) {
+int luaV_execute (lua_State *L) {
   CallInfo *ci = L->ci;
   LClosure *cl;
   TValue *k;
@@ -1232,9 +1232,10 @@ void luaV_execute (lua_State *L) {
         int b = GETARG_B(i);
         int nresults = GETARG_C(i) - 1;
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
-        int is_c_or_jit = 0; /* 1 is C, 2 is jit */
-        if (is_c_or_jit = luaD_precall(L, ra, nresults, 1)) {  /* C function? */
-          if (is_c_or_jit == 1 && nresults >= 0)
+        /* 0 is Lua, 1 is C, 2 is jit */
+        int result = luaD_precall(L, ra, nresults, 1);
+        if (result) {  /* C function? */
+          if (result == 1 && nresults >= 0)
             L->top = ci->top;  /* adjust results */
           Protect((void)0);  /* update 'base' */
         }
@@ -1280,7 +1281,8 @@ void luaV_execute (lua_State *L) {
         if (cl->p->sizep > 0) luaF_close(L, base);
         b = luaD_poscall(L, ci, ra, (b != 0 ? b - 1 : cast_int(L->top - ra)));
         if (ci->callstatus & CIST_FRESH)  /* local 'ci' still from callee */
-          return;  /* external invocation: return */
+          /* jit function need the value to fix the top of the stack */
+          return b;  /* external invocation: return */
         else {  /* invocation via reentry: continue execution */
           ci = L->ci;
           if (b) L->top = ci->top;

@@ -19,7 +19,6 @@ typedef struct Proto Proto;
 /* lbaselib.c */
 int jit (lua_State *L);
 
-
 /* lstate.c */
 typedef struct YJIT_State {
   MIR_context_t Y_mirctx;
@@ -55,17 +54,5 @@ void Y_initjitproto (lua_State *L, Proto *p);
 void Y_closejitproto (lua_State *L, Proto *p);
 
 int Y_compile (lua_State *L, Proto *p);
-
-/*
-jit("compile", function)
-jit("iscompiled", function)
-jit("isrunning")
-jit("open")
-jit("stop")
-jit("count") -- return jit functions numbers
-jit("codegen", function)
-jit("setlimitsize", x)
-jit("setlimitcount", x)
-*/
 
 #endif

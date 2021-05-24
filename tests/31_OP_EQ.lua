@@ -5,7 +5,7 @@ end
 
 jit("compile", test)
 local res = test()
-assert(res == false)
+assert(res == (b == "test"))
 
 --[[
 function <../tests/31_OP_EQ.lua:1,4> (7 instructions at 0x1ba7500)
