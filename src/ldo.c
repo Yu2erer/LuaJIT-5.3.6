@@ -410,7 +410,7 @@ int luaD_poscall (lua_State *L, CallInfo *ci, StkId firstResult, int nres) {
 ** the execution ('luaV_execute') to the caller, to allow stackless
 ** calls.) Returns true iff function has been executed (C function).
 */
-int luaD_precall (lua_State *L, StkId func, int nresults) {
+int luaD_precall (lua_State *L, StkId func, int nresults, int need_adjust) {
   lua_CFunction f;
   CallInfo *ci;
   global_State *g = G(L);
@@ -480,8 +480,9 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
           n = (*p->Y_jitproto->Y_jitfunc)(L); /* poscall will be executed inside */
           L->nny --;
           L->nCcalls --;
-          /* precall -> poscall(return) -> fix top */
-          if (n) L->top = L->ci->top;
+          /* precall -> poscall(return) -> fix top
+            sometimes need to handle the return value themseleves */
+          if (need_adjust && n) L->top = L->ci->top;
           return 2;
         }
       }
@@ -491,7 +492,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     default: {  /* not a function */
       checkstackp(L, 1, func);  /* ensure space for metamethod */
       tryfuncTM(L, func);  /* try to get '__call' metamethod */
-      return luaD_precall(L, func, nresults);  /* now it must be a function */
+      return luaD_precall(L, func, nresults, need_adjust);  /* now it must be a function */
     }
   }
 }
@@ -521,7 +522,7 @@ static void stackerror (lua_State *L) {
 void luaD_call (lua_State *L, StkId func, int nResults) {
   if (++L->nCcalls >= LUAI_MAXCCALLS)
     stackerror(L);
-  if (!luaD_precall(L, func, nResults))  /* is a Lua function? */
+  if (!luaD_precall(L, func, nResults, 0))  /* is a Lua function? */
     luaV_execute(L);  /* call it */
   L->nCcalls--;
 }
@@ -647,7 +648,7 @@ static void resume (lua_State *L, void *ud) {
   StkId firstArg = L->top - n;  /* first argument */
   CallInfo *ci = L->ci;
   if (L->status == LUA_OK) {  /* starting a coroutine? */
-    if (!luaD_precall(L, firstArg - 1, LUA_MULTRET))  /* Lua function? */
+    if (!luaD_precall(L, firstArg - 1, LUA_MULTRET, 0))  /* Lua function? */
       luaV_execute(L);  /* call it */
   }
   else {  /* resuming from previous yield */

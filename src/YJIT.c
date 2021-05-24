@@ -21,6 +21,7 @@ void Y_initjitstate (lua_State *L) {
   global_State *g = G(L);
   g->Y_jitstate = Y_luaM_new(L, YJIT_State);
   g->Y_jitstate->Y_mirctx = MIR_init();
+  memset(&g->Y_jitstate->Y_c2miropts, 0, sizeof(struct c2mir_options));
   g->Y_jitstate->Y_c2miropts.message_file = stderr;
   g->Y_jitstate->Y_c2miropts.module_num = 0;
   g->Y_jitstate->Y_jitrunning = 1;
@@ -75,6 +76,7 @@ static void Y_initbuffer (lua_State *L, Y_jitbuffer *buff, size_t capacity) {
     return;
   }
   buff->buffer = Y_luaM_newvector(L, capacity, char);
+  memset(buff->buffer, 0, capacity * sizeof(char));
   buff->capacity = capacity;
   buff->ud = L;
 }
@@ -83,9 +85,8 @@ static void Y_resizebuffer (Y_jitbuffer *buff, size_t buffsize) {
   lua_State *L = cast(lua_State*, buff->ud);
   if (buff->capacity >= buffsize) return;
   size_t newsize = buffsize * 2;
-  Y_luaM_reallocv(L, buff->buffer, buff->capacity, newsize, char);
+  buff->buffer = Y_luaM_reallocv(L, buff->buffer, buff->capacity, newsize, char);
   buff->capacity = newsize;
-  printf("expand %ld\n", newsize);
 }
 
 #define Y_freebuffer(buff) \
@@ -95,7 +96,7 @@ static const char LUA_HEADER[];
 
 static void Y_str2buffer (Y_jitbuffer *buff, const char *str) {
   size_t len = strlen(str);
-  size_t newsize = buff->size + len + 1;
+  size_t newsize = buff->size + len + 2;
   Y_resizebuffer(buff, newsize);
   strcpy(&buff->buffer[buff->size], str);
   buff->size += len;
@@ -414,7 +415,7 @@ static void emit_call (int A, int B, int C, int savedpc, Y_jitbuffer *buff) {
   int nresults = C - 1;
   if (B) CODE("L->top = R(%d);", A + B);
   UPDATE_SAVEDPC;
-  CODE("result = luaD_precall(L, ra, %d);", nresults);
+  CODE("result = luaD_precall(L, ra, %d, 1);", nresults);
   CODE("if (result) {");
   CODE("  if (result == 1 && %d >= 0) {", nresults);
   CODE("      L->top = ci->top;");
@@ -798,7 +799,7 @@ static void Y_codegen (lua_State *L, Proto *p, const char *name, Y_jitbuffer *bu
   Y_luaM_freearray(L, is_jmps, p->sizecode);
   Y_luaM_freearray(L, is_defineds, p->maxstacksize);
   // printf("%s\n", &buff->buffer[strlen(LUA_HEADER)]);
-  // FILE *f = fopen("test.log", "wa");
+  // FILE *f = fopen("test.log", "w+");
   // fprintf(f, "%s\n", buff->buffer);
   // fclose(f);
 }
@@ -862,6 +863,9 @@ int Y_compile (lua_State *L, Proto *p) {
     goto CLEANUP;
   }
 CLEANUP:
+  if (is_success == 0) {
+    printf("Build ERROR\n");
+  }
   MIR_gen_finish(ctx);
   c2mir_finish(ctx);
   Y_freebuffer(&buff);

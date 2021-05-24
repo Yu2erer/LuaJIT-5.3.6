@@ -1232,8 +1232,9 @@ void luaV_execute (lua_State *L) {
         int b = GETARG_B(i);
         int nresults = GETARG_C(i) - 1;
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
-        if (luaD_precall(L, ra, nresults)) {  /* C function? */
-          if (nresults >= 0)
+        int is_c_or_jit = 0; /* 1 is C, 2 is jit */
+        if (is_c_or_jit = luaD_precall(L, ra, nresults, 1)) {  /* C function? */
+          if (is_c_or_jit == 1 && nresults >= 0)
             L->top = ci->top;  /* adjust results */
           Protect((void)0);  /* update 'base' */
         }
@@ -1247,7 +1248,7 @@ void luaV_execute (lua_State *L) {
         int b = GETARG_B(i);
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         lua_assert(GETARG_C(i) - 1 == LUA_MULTRET);
-        if (luaD_precall(L, ra, LUA_MULTRET)) {  /* C function? */
+        if (luaD_precall(L, ra, LUA_MULTRET, 1)) {  /* C function? */
           Protect((void)0);  /* update 'base' */
         }
         else {
