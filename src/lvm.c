@@ -33,6 +33,14 @@
 
 #include "YGC.h"
 
+#if !defined(LUA_USE_JUMPTABLE)
+#if defined(__GNUC__)
+#define LUA_USE_JUMPTABLE	1
+#else
+#define LUA_USE_JUMPTABLE	0
+#endif
+#endif
+
 /* limit for table tag-method chains (to avoid loops) */
 #define MAXTAGLOOP	2000
 
@@ -889,6 +897,9 @@ int luaV_execute (lua_State *L) {
   LClosure *cl;
   TValue *k;
   StkId base;
+#if LUA_USE_JUMPTABLE
+#include "YJUMPTAB.h"
+#endif
   ci->callstatus |= CIST_FRESH;  /* fresh invocation of 'luaV_execute" */
  newframe:  /* reentry point when frame changes (call/return) */
   lua_assert(ci == L->ci);
