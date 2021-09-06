@@ -7,12 +7,12 @@
 #ifndef YGC_H
 #define YGC_H
 
-#include "lgc.h"
-
 /* windows and c89 support nogc but not bggc */
 #if !defined(LUA_USE_WINDOWS)
 #include <pthread.h>
 #endif
+
+#include "lgc.h"
 
 /* lgc.c */
 #define Y_NOGCBIT 4 /* object not to be collected */

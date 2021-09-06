@@ -51,7 +51,12 @@ R= $V.6
 # Targets start here.
 all:	$(PLAT)
 
-$(PLATS) clean:
+$(PLATS):
+	cd mir && $(MAKE)
+	cd src && $(MAKE) $@
+
+clean:
+	cd mir && $(MAKE) $@
 	cd src && $(MAKE) $@
 
 test:	dummy
